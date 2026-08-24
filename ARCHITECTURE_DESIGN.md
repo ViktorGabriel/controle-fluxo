@@ -1,4 +1,4 @@
-# Documento de Arquitetura e Design: Automação de Monitoramento de Fluxos Viários
+# Documento de Arquitetura e Design: Controle de Fluxo Viário
 
 ## 1. Resumo do Projeto (Understanding Summary)
 * **Objetivo:** Automatizar a verificação periódica de integridade dos fluxos de tráfego em radares viários através de uma plataforma web com login.
@@ -35,7 +35,7 @@
 ## 4. Estrutura do Projeto
 
 ```text
-Automate-visualization-DailyFluxe/
+controle-fluxo/
 ├── .github/
 │   └── workflows/
 │       └── daily_monitor.yml       # Orquestração GitHub Actions
@@ -58,19 +58,19 @@ Automate-visualization-DailyFluxe/
 
 ```mermaid
 flowchart TD
-    Start([GitHub Actions Disparado]) --> Init[Carrega Configurações & Secrets]
-    Init --> LoginPortal[Login no Portal Viário com Playwright]
+    Start(["GitHub Actions Disparado"]) --> Init["Carrega Configurações e Secrets"]
+    Init --> LoginPortal["Login no Portal Viário com Playwright"]
     
-    LoginPortal -->|Sucesso| FetchList[Obtém Lista de Equipamentos do Filtro]
-    LoginPortal -->|Falha| LogError[Registra Erro no Log do GitHub e Encerra com Alerta]
+    LoginPortal -->|Sucesso| FetchList["Obtém Lista de Equipamentos do Filtro"]
+    LoginPortal -->|Falha| LogError["Registra Erro no Log do GitHub e Encerra"]
     
-    FetchList --> LoopEquip{Mais equipamentos?}
-    LoopEquip -->|Sim| SelectEquip[Aplica Filtro para o Equipamento N]
-    SelectEquip --> ReadLanes[Lê Faixas, Valores e Classes de Cor do Status]
-    ReadLanes --> Analyze[Classifica: OK vs FALHA]
+    FetchList --> LoopEquip{"Mais equipamentos?"}
+    LoopEquip -->|Sim| SelectEquip["Aplica Filtro para o Equipamento N"]
+    SelectEquip --> ReadLanes["Lê Faixas, Valores e Classes de Cor do Status"]
+    ReadLanes --> Analyze["Classifica: OK vs FALHA"]
     Analyze --> LoopEquip
     
-    LoopEquip -->|Não| FormatBatches[Prepara Lotes de Atualização]
-    FormatBatches --> SendSheets[Envia para Google Sheets via gspread]
-    SendSheets --> End([Concluído com Sucesso])
+    LoopEquip -->|Não| FormatBatches["Prepara Lotes de Atualização"]
+    FormatBatches --> SendSheets["Envia para Google Sheets via gspread"]
+    SendSheets --> End(["Concluído com Sucesso"])
 ```

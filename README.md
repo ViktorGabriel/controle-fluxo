@@ -1,4 +1,4 @@
-# 🚗 Automate Visualization DailyFluxe
+# 🚗 Controle de Fluxo Viário
 > Sistema automatizado para monitoramento e auditoria periódica de fluxos em radares de trânsito viário, com detecção de anomalias (status vazio/vermelho), gravação em Google Sheets e agendamento serverless via GitHub Actions.
 
 ---
@@ -7,11 +7,11 @@
 
 ```mermaid
 flowchart LR
-    Cron[GitHub Actions\n07:50 e 13:30] -->|Dispara| Runner[Python 3.11\nPlaywright]
-    Runner -->|1. Login & Filtro| Portal[Portal de Monitoramento\nde Radares]
-    Runner -->|2. Identifica Falhas| Analyzer[Flow Analyzer\n(Vazio/Vermelho)]
-    Analyzer -->|3. Append Rows| GSheets[Google Sheets API]
-    GSheets -->|Aba Histórico & Pendências| Users[👨‍🔧 Técnicos & Equipe]
+    Cron["GitHub Actions<br/>07:50 e 13:30"] -->|Dispara| Runner["Python 3.11<br/>Playwright"]
+    Runner -->|1. Login e Filtro| Portal["Portal de Monitoramento<br/>de Radares"]
+    Runner -->|2. Identifica Falhas| Analyzer["Analisador de Fluxo<br/>(Vazio / Vermelho)"]
+    Analyzer -->|3. Grava Linhas| GSheets["Google Sheets API"]
+    GSheets -->|Aba Histórico e Pendências| Users["👨‍🔧 Técnicos e Equipe"]
 ```
 
 ### Principais Recursos
@@ -59,8 +59,8 @@ No seu repositório do GitHub, vá em **Settings** $\rightarrow$ **Secrets and v
 
 ### 1. Clonar o repositório e criar ambiente virtual
 ```bash
-git clone <URL_DO_REPOSITORIO>
-cd Automate-visualization-DailyFluxe
+git clone https://github.com/ViktorGabriel/controle-fluxo.git
+cd controle-fluxo
 
 python -m venv venv
 # No Windows:
@@ -84,7 +84,7 @@ cp .env.example .env
 
 ### 4. Rodar os testes automatizados
 ```bash
-pytest tests/ -v
+python -m unittest discover tests
 ```
 
 ### 5. Executar o robô manualmente
@@ -107,12 +107,12 @@ Caso o portal de trânsito possua IDs ou classes CSS específicas, você pode cu
 ## 🛠️ Estrutura do Código
 
 ```text
-Automate-visualization-DailyFluxe/
+controle-fluxo/
 ├── .github/workflows/
 │   └── daily_monitor.yml       # Orquestrador do Cron (07:50 e 13:30)
 ├── src/
 │   ├── config.py               # Centralizador de configurações
-│   ├── models.py               # Modelos Pydantic (LaneReading, EquipmentReport)
+│   ├── models.py               # Modelos de Dados (LaneReading, EquipmentReport)
 │   ├── analyzer.py             # Regras de detecção de falha (vazio/vermelho)
 │   ├── scraper.py              # Automação do navegador com Playwright
 │   └── sheets_service.py       # Integração com Google Sheets (gspread)
