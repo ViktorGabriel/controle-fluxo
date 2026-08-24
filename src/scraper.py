@@ -321,43 +321,76 @@ class PortalScraper:
                     match = re.search(r"Equipamento:\s*([^\n\r]+)", txt)
                     lane_name = match.group(1).strip() if match else f"{equipment_id} - {idx}"
                     
-                    # Extrai os números de fluxo do card (valores diários)
-                    card_numbers = c.evaluate("""el => {
-                        return Array.from(el.querySelectorAll('*')).filter(node => {
-                            const text = (node.textContent || '').trim();
-                            return /^\\d+$/.test(text) && node.children.length === 0;
-                        }).map(node => parseFloat(node.textContent.trim()) || 0);
-                    }""")
+                    # Avalia os 2 últimos quadrados da coluna da DATA DE HOJE
+                    eval_result = c.evaluate(f"""(el, todayDay) => {{
+                        const svg = el.querySelector('apx-chart svg') || el.querySelector('svg');
+                        if (!svg) return {{ status: 'OK', reason: 'SVG não carregado', value: 0, bothRed: false }};
+                        
+                        // Extrai os retângulos da grade horária
+                        const rects = Array.from(svg.querySelectorAll('rect')).filter(r => {{
+                            const w = parseFloat(r.getAttribute('width') || 0);
+                            const h = parseFloat(r.getAttribute('height') || 0);
+                            return w > 10 && w < 100 && h > 5 && h < 50;
+                        }}).map(r => ({{
+                            x: Math.round(parseFloat(r.getAttribute('x') || 0)),
+                            y: Math.round(parseFloat(r.getAttribute('y') || 0)),
+                            fill: (r.getAttribute('fill') || '').toLowerCase(),
+                            val: parseFloat(r.getAttribute('val') || r.getAttribute('data-val') || 0)
+                        }}));
+                        
+                        // Agrupa células por coluna (coordenada X = dia do mês)
+                        const columnsMap = {{}};
+                        for (let r of rects) {{
+                            if (!columnsMap[r.x]) columnsMap[r.x] = [];
+                            columnsMap[r.x].push(r);
+                        }}
+                        
+                        const sortedX = Object.keys(columnsMap).map(Number).sort((a, b) => a - b);
+                        const todayX = (sortedX.length >= todayDay) ? sortedX[todayDay - 1] : null;
+                        const todayRects = todayX ? columnsMap[todayX].sort((a, b) => a.y - b.y) : [];
+                        
+                        // Filtra apenas células preenchidas (ignora horários futuros sem dados)
+                        const activeToday = todayRects.filter(r => {{
+                            return r.fill && !r.fill.includes('#f3f4f6') && !r.fill.includes('#e5e7eb') && !r.fill.includes('transparent') && !r.fill.includes('none');
+                        }});
+                        
+                        // Pega os 2 últimos quadrados registrados na data de hoje
+                        const last2 = activeToday.slice(-2);
+                        
+                        const isRed = (fill, val) => {{
+                            return (fill.includes('#ef4444') || fill.includes('#fee2e2') || fill.includes('#fca5a5') || fill.includes('rgb(254') || fill.includes('rgb(239') || fill.includes('red')) || (val === 0);
+                        }};
+                        
+                        const bothRed = last2.length === 2 && last2.every(r => isRed(r.fill, r.val));
+                        const lastOneRed = last2.length >= 1 && isRed(last2[last2.length - 1].fill, last2[last2.length - 1].val);
+                        
+                        let status = 'OK';
+                        let reason = 'Fluxo normal nos últimos períodos de hoje';
+                        if (bothRed) {{
+                            status = 'FALHA';
+                            reason = '🚨 OFFLINE: Os 2 últimos quadrados de hoje estão em vermelho / sem fluxo';
+                        }} else if (lastOneRed) {{
+                            status = 'ALERTA';
+                            reason = '⚠️ ALERTA: Último quadrado de hoje em vermelho (penúltimo operou normalmente)';
+                        }}
+                        
+                        const lastVal = last2.length > 0 ? last2[last2.length - 1].val : 1;
+                        return {{ status, reason, bothRed, value: lastVal }};
+                    }}""", current_day)
                     
-                    # Pega os 31 totais diários (um por dia do mês)
-                    daily_totals = card_numbers[-31:] if len(card_numbers) >= 31 else card_numbers
-                    
-                    # Identifica o valor de hoje e de ontem
-                    today_val = daily_totals[current_day - 1] if len(daily_totals) >= current_day else 0.0
-                    yesterday_val = daily_totals[current_day - 2] if (len(daily_totals) >= (current_day - 1) and current_day > 1) else today_val
-                    
-                    has_flow_today = today_val >= 1.0
-                    has_flow_yesterday = yesterday_val >= 1.0
-                    
-                    if not has_flow_today and not has_flow_yesterday:
-                        status = StatusEnum.FALHA
-                        reason = f"🚨 OFFLINE: Ontem ({yesterday_val:.0f}) e Hoje ({today_val:.0f}) sem fluxo (< 1)"
-                    elif not has_flow_today and has_flow_yesterday:
-                        status = StatusEnum.ALERTA
-                        reason = f"⚠️ ALERTA: Hoje ({today_val:.0f}) sem fluxo, mas ontem ({yesterday_val:.0f}) operou normalmente"
-                    else:
-                        status = StatusEnum.OK
-                        reason = f"Fluxo OK ({today_val:.0f} veículos registrados hoje)"
+                    status_str = eval_result.get("status", "OK")
+                    status_enum = StatusEnum.FALHA if status_str == "FALHA" else (StatusEnum.ALERTA if status_str == "ALERTA" else StatusEnum.OK)
+                    reason_str = eval_result.get("reason", "")
                     
                     reading = LaneReading(
                         timestamp=timestamp,
                         equipment_id=equipment_id,
                         lane_number=lane_name,
-                        flow_value=today_val,
-                        raw_value=str(int(today_val)),
-                        is_red_highlighted=(status == StatusEnum.FALHA),
-                        status=status,
-                        failure_reason=reason
+                        flow_value=float(eval_result.get("value", 1.0)),
+                        raw_value=str(eval_result.get("value", "1")),
+                        is_red_highlighted=(status_enum == StatusEnum.FALHA),
+                        status=status_enum,
+                        failure_reason=reason_str
                     )
                     report.readings.append(reading)
 
