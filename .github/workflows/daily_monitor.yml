@@ -34,6 +34,17 @@ jobs:
         run: |
           playwright install --with-deps chromium
 
+      - name: 🔑 Restaurar Sessão Autenticada (se configurada)
+        env:
+          SESSION_STATE_JSON: ${{ secrets.SESSION_STATE_JSON }}
+        run: |
+          if [ -n "$SESSION_STATE_JSON" ]; then
+            echo "$SESSION_STATE_JSON" > session_state.json
+            echo "✅ Sessão autenticada 'session_state.json' restaurada com sucesso."
+          else
+            echo "ℹ️ Secret SESSION_STATE_JSON não configurada. Prosseguindo com autenticação via credenciais."
+          fi
+
       - name: 🚗 Executar Monitoramento de Fluxos
         env:
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
@@ -43,6 +54,8 @@ jobs:
           SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          EQUIPMENT_LIST: ${{ secrets.EQUIPMENT_LIST }}
+          INITIAL_PAGE_WAIT_SECONDS: "10"
           HEADLESS: "True"
           BROWSER_TIMEOUT_MS: "45000"
           MOCK_MODE: "False"
