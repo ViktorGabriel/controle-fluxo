@@ -34,3 +34,7 @@ htmlcov/
 .vscode/
 .idea/
 *.swp
+
+# Arquivos de Guia Pessoal / Local
+EXPLICACAO_PROJETO_ENTREVISTA.txt
+
