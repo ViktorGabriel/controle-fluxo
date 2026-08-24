@@ -310,41 +310,54 @@ class PortalScraper:
             cards = self.page.query_selector_all(".main.flex.flex-col:has(card-header-mapa), .main.flex.flex-col")
             if cards:
                 logger.info(f"📊 Detectados {len(cards)} cards de faixas para o equipamento {equipment_id}")
+                now_brt = datetime.now(BRT)
+                current_day = now_brt.day
+
                 for idx, c in enumerate(cards, start=1):
                     header = c.query_selector("card-header-mapa")
                     txt = header.inner_text().strip() if header else c.inner_text().strip()
                     
-                    # Extrai o nome da faixa (ex: GBR005 - 1)
+                    # Extrai o nome da faixa (ex: GBR005 - 1 ou SPK347 - 1)
                     match = re.search(r"Equipamento:\s*([^\n\r]+)", txt)
                     lane_name = match.group(1).strip() if match else f"{equipment_id} - {idx}"
                     
-                    # Analisa a área do gráfico, isolando da legenda do cabeçalho
-                    chart_area = c.query_selector("chart-mapa-unificado-minute, apx-chart")
-                    has_red = False
-                    if chart_area:
-                        chart_txt = chart_area.inner_text().lower()
-                        if "não há dados" in chart_txt or "offline" in chart_txt or "erro ao carregar" in chart_txt:
-                            has_red = True
-                        else:
-                            # Busca apenas retângulos ou caminhos dentro da grade gráfica
-                            chart_elements = chart_area.query_selector_all("rect.apexcharts-heatmap-rect, rect, path")
-                            for el in chart_elements:
-                                cls_attr = el.get_attribute("class") or ""
-                                style_attr = el.get_attribute("style") or ""
-                                fill_attr = el.get_attribute("fill") or ""
-                                # Ignora elementos de fundo transparente/branco
-                                if fill_attr in ("", "none", "#ffffff", "#fff", "transparent"):
-                                    continue
-                                if FlowAnalyzer.is_red_style(cls_attr, f"{style_attr} fill:{fill_attr}"):
-                                    has_red = True
-                                    break
+                    # Extrai os números de fluxo do card (valores diários)
+                    card_numbers = c.evaluate("""el => {
+                        return Array.from(el.querySelectorAll('*')).filter(node => {
+                            const text = (node.textContent || '').trim();
+                            return /^\\d+$/.test(text) && node.children.length === 0;
+                        }).map(node => parseFloat(node.textContent.trim()) || 0);
+                    }""")
                     
-                    reading = FlowAnalyzer.evaluate_reading(
+                    # Pega os 31 totais diários (um por dia do mês)
+                    daily_totals = card_numbers[-31:] if len(card_numbers) >= 31 else card_numbers
+                    
+                    # Identifica o valor de hoje e de ontem
+                    today_val = daily_totals[current_day - 1] if len(daily_totals) >= current_day else 0.0
+                    yesterday_val = daily_totals[current_day - 2] if (len(daily_totals) >= (current_day - 1) and current_day > 1) else today_val
+                    
+                    has_flow_today = today_val >= 1.0
+                    has_flow_yesterday = yesterday_val >= 1.0
+                    
+                    if not has_flow_today and not has_flow_yesterday:
+                        status = StatusEnum.FALHA
+                        reason = f"🚨 OFFLINE: Ontem ({yesterday_val:.0f}) e Hoje ({today_val:.0f}) sem fluxo (< 1)"
+                    elif not has_flow_today and has_flow_yesterday:
+                        status = StatusEnum.ALERTA
+                        reason = f"⚠️ ALERTA: Hoje ({today_val:.0f}) sem fluxo, mas ontem ({yesterday_val:.0f}) operou normalmente"
+                    else:
+                        status = StatusEnum.OK
+                        reason = f"Fluxo OK ({today_val:.0f} veículos registrados hoje)"
+                    
+                    reading = LaneReading(
                         timestamp=timestamp,
                         equipment_id=equipment_id,
                         lane_number=lane_name,
-                        raw_value="0" if has_red else "1",
-                        is_red_highlighted=has_red
+                        flow_value=today_val,
+                        raw_value=str(int(today_val)),
+                        is_red_highlighted=(status == StatusEnum.FALHA),
+                        status=status,
+                        failure_reason=reason
                     )
                     report.readings.append(reading)
 
