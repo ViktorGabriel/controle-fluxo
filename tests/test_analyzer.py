@@ -67,6 +67,54 @@ class TestFlowAnalyzer(unittest.TestCase):
         self.assertEqual(reading.status, StatusEnum.FALHA)
         self.assertIn("vermelho", reading.failure_reason.lower())
 
+    def test_evaluate_consecutive_readings_offline_failure(self):
+        # Cenário: Penúltimo e Último Vermelhos -> FALHA / OFFLINE
+        history = [
+            {"value": "1200", "is_red": False},
+            {"value": "0", "is_red": True},
+            {"value": "", "is_red": True}
+        ]
+        reading = FlowAnalyzer.evaluate_consecutive_readings(
+            timestamp="24/08/2026 07:50:00",
+            equipment_id="RADAR-01",
+            lane_number="Faixa 1",
+            readings_history=history
+        )
+        self.assertEqual(reading.status, StatusEnum.FALHA)
+        self.assertIn("OFFLINE", reading.failure_reason)
+
+    def test_evaluate_consecutive_readings_single_alert(self):
+        # Cenário: Apenas o último vermelho -> ALERTA
+        history = [
+            {"value": "1200", "is_red": False},
+            {"value": "1150", "is_red": False},
+            {"value": "0", "is_red": True}
+        ]
+        reading = FlowAnalyzer.evaluate_consecutive_readings(
+            timestamp="24/08/2026 07:50:00",
+            equipment_id="RADAR-01",
+            lane_number="Faixa 1",
+            readings_history=history
+        )
+        self.assertEqual(reading.status, StatusEnum.ALERTA)
+        self.assertIn("ALERTA", reading.failure_reason)
+
+    def test_evaluate_consecutive_readings_ok(self):
+        # Cenário: Todos normais -> OK
+        history = [
+            {"value": "1200", "is_red": False},
+            {"value": "1150", "is_red": False},
+            {"value": "1300", "is_red": False}
+        ]
+        reading = FlowAnalyzer.evaluate_consecutive_readings(
+            timestamp="24/08/2026 07:50:00",
+            equipment_id="RADAR-01",
+            lane_number="Faixa 1",
+            readings_history=history
+        )
+        self.assertEqual(reading.status, StatusEnum.OK)
+        self.assertEqual(reading.failure_reason, "")
+
     def test_to_history_and_pending_rows(self):
         reading = FlowAnalyzer.evaluate_reading(
             timestamp="24/08/2026 07:50:00",
