@@ -307,6 +307,11 @@ class PortalScraper:
             self.open_filter_and_search(equipment_id)
 
             # 2. Localiza cards de faixas na tela (layout mapa unificado)
+            try:
+                self.page.wait_for_selector("apx-chart svg, .main svg, svg", state="attached", timeout=25000)
+            except Exception:
+                pass
+
             cards = self.page.query_selector_all(".main.flex.flex-col:has(card-header-mapa), .main.flex.flex-col")
             if cards:
                 logger.info(f"📊 Detectados {len(cards)} cards de faixas para o equipamento {equipment_id}")
@@ -314,6 +319,13 @@ class PortalScraper:
                 current_day = now_brt.day
 
                 for idx, c in enumerate(cards, start=1):
+                    # Garante que o card foi rolado para a tela para acionar a renderização do ApexCharts
+                    try:
+                        c.scroll_into_view_if_needed()
+                        self.page.wait_for_timeout(600)
+                    except Exception:
+                        pass
+
                     header = c.query_selector("card-header-mapa")
                     txt = header.inner_text().strip() if header else c.inner_text().strip()
                     
@@ -321,62 +333,70 @@ class PortalScraper:
                     match = re.search(r"Equipamento:\s*([^\n\r]+)", txt)
                     lane_name = match.group(1).strip() if match else f"{equipment_id} - {idx}"
                     
-                    # Avalia os 2 últimos quadrados da coluna da DATA DE HOJE
-                    eval_result = c.evaluate(f"""(el, todayDay) => {{
-                        const svg = el.querySelector('apx-chart svg') || el.querySelector('svg');
-                        if (!svg) return {{ status: 'OK', reason: 'SVG não carregado', value: 0, bothRed: false }};
+                    # Avalia os 2 últimos quadrados da coluna da DATA DE HOJE (com retry para SVG)
+                    eval_result = {"status": "OK", "reason": "SVG não carregado", "value": 1.0}
+                    for attempt in range(1, 4):
+                        eval_result = c.evaluate(f"""(el, todayDay) => {{
+                            const svg = el.querySelector('apx-chart svg') || el.querySelector('svg');
+                            if (!svg) return {{ status: 'OK', reason: 'SVG não carregado', value: 0, bothRed: false }};
+                            
+                            // Extrai os retângulos da grade horária
+                            const rects = Array.from(svg.querySelectorAll('rect')).filter(r => {{
+                                const w = parseFloat(r.getAttribute('width') || 0);
+                                const h = parseFloat(r.getAttribute('height') || 0);
+                                return w > 10 && w < 100 && h > 5 && h < 50;
+                            }}).map(r => ({{
+                                x: Math.round(parseFloat(r.getAttribute('x') || 0)),
+                                y: Math.round(parseFloat(r.getAttribute('y') || 0)),
+                                fill: (r.getAttribute('fill') || '').toLowerCase(),
+                                val: parseFloat(r.getAttribute('val') || r.getAttribute('data-val') || 0)
+                            }}));
+                            
+                            if (rects.length === 0) return {{ status: 'OK', reason: 'SVG não carregado', value: 0, bothRed: false }};
+
+                            // Agrupa células por coluna (coordenada X = dia do mês)
+                            const columnsMap = {{}};
+                            for (let r of rects) {{
+                                if (!columnsMap[r.x]) columnsMap[r.x] = [];
+                                columnsMap[r.x].push(r);
+                            }}
+                            
+                            const sortedX = Object.keys(columnsMap).map(Number).sort((a, b) => a - b);
+                            const todayX = (sortedX.length >= todayDay) ? sortedX[todayDay - 1] : null;
+                            const todayRects = todayX ? columnsMap[todayX].sort((a, b) => a.y - b.y) : [];
+                            
+                            // Filtra apenas células preenchidas (ignora horários futuros sem dados)
+                            const activeToday = todayRects.filter(r => {{
+                                return r.fill && !r.fill.includes('#f3f4f6') && !r.fill.includes('#e5e7eb') && !r.fill.includes('transparent') && !r.fill.includes('none');
+                            }});
+                            
+                            // Pega os 2 últimos quadrados registrados na data de hoje
+                            const last2 = activeToday.slice(-2);
+                            
+                            const isRed = (fill, val) => {{
+                                return (fill.includes('#ef4444') || fill.includes('#fee2e2') || fill.includes('#fca5a5') || fill.includes('rgb(254') || fill.includes('rgb(239') || fill.includes('red')) || (val === 0);
+                            }};
+                            
+                            const bothRed = last2.length === 2 && last2.every(r => isRed(r.fill, r.val));
+                            const lastOneRed = last2.length >= 1 && isRed(last2[last2.length - 1].fill, last2[last2.length - 1].val);
+                            
+                            let status = 'OK';
+                            let reason = 'Fluxo normal nos últimos períodos de hoje';
+                            if (bothRed) {{
+                                status = 'FALHA';
+                                reason = '🚨 OFFLINE: Os 2 últimos quadrados de hoje estão em vermelho / sem fluxo';
+                            }} else if (lastOneRed) {{
+                                status = 'ALERTA';
+                                reason = '⚠️ ALERTA: Último quadrado de hoje em vermelho (penúltimo operou normalmente)';
+                            }}
+                            
+                            const lastVal = last2.length > 0 ? last2[last2.length - 1].val : 1;
+                            return {{ status, reason, bothRed, value: lastVal }};
+                        }}""", current_day)
                         
-                        // Extrai os retângulos da grade horária
-                        const rects = Array.from(svg.querySelectorAll('rect')).filter(r => {{
-                            const w = parseFloat(r.getAttribute('width') || 0);
-                            const h = parseFloat(r.getAttribute('height') || 0);
-                            return w > 10 && w < 100 && h > 5 && h < 50;
-                        }}).map(r => ({{
-                            x: Math.round(parseFloat(r.getAttribute('x') || 0)),
-                            y: Math.round(parseFloat(r.getAttribute('y') || 0)),
-                            fill: (r.getAttribute('fill') || '').toLowerCase(),
-                            val: parseFloat(r.getAttribute('val') || r.getAttribute('data-val') || 0)
-                        }}));
-                        
-                        // Agrupa células por coluna (coordenada X = dia do mês)
-                        const columnsMap = {{}};
-                        for (let r of rects) {{
-                            if (!columnsMap[r.x]) columnsMap[r.x] = [];
-                            columnsMap[r.x].push(r);
-                        }}
-                        
-                        const sortedX = Object.keys(columnsMap).map(Number).sort((a, b) => a - b);
-                        const todayX = (sortedX.length >= todayDay) ? sortedX[todayDay - 1] : null;
-                        const todayRects = todayX ? columnsMap[todayX].sort((a, b) => a.y - b.y) : [];
-                        
-                        // Filtra apenas células preenchidas (ignora horários futuros sem dados)
-                        const activeToday = todayRects.filter(r => {{
-                            return r.fill && !r.fill.includes('#f3f4f6') && !r.fill.includes('#e5e7eb') && !r.fill.includes('transparent') && !r.fill.includes('none');
-                        }});
-                        
-                        // Pega os 2 últimos quadrados registrados na data de hoje
-                        const last2 = activeToday.slice(-2);
-                        
-                        const isRed = (fill, val) => {{
-                            return (fill.includes('#ef4444') || fill.includes('#fee2e2') || fill.includes('#fca5a5') || fill.includes('rgb(254') || fill.includes('rgb(239') || fill.includes('red')) || (val === 0);
-                        }};
-                        
-                        const bothRed = last2.length === 2 && last2.every(r => isRed(r.fill, r.val));
-                        const lastOneRed = last2.length >= 1 && isRed(last2[last2.length - 1].fill, last2[last2.length - 1].val);
-                        
-                        let status = 'OK';
-                        let reason = 'Fluxo normal nos últimos períodos de hoje';
-                        if (bothRed) {{
-                            status = 'FALHA';
-                            reason = '🚨 OFFLINE: Os 2 últimos quadrados de hoje estão em vermelho / sem fluxo';
-                        }} else if (lastOneRed) {{
-                            status = 'ALERTA';
-                            reason = '⚠️ ALERTA: Último quadrado de hoje em vermelho (penúltimo operou normalmente)';
-                        }}
-                        
-                        const lastVal = last2.length > 0 ? last2[last2.length - 1].val : 1;
-                        return {{ status, reason, bothRed, value: lastVal }};
-                    }}""", current_day)
+                        if eval_result.get("reason") != "SVG não carregado":
+                            break
+                        self.page.wait_for_timeout(1200)
                     
                     status_str = eval_result.get("status", "OK")
                     status_enum = StatusEnum.FALHA if status_str == "FALHA" else (StatusEnum.ALERTA if status_str == "ALERTA" else StatusEnum.OK)
