@@ -65,8 +65,13 @@ class Settings:
         "tbody tr, tr.linha-faixa, .mat-row, tr"
     )
 
-    # Lista manual de equipamentos (opcional - separados por vírgula)
-    EQUIPMENT_LIST: str = os.getenv("EQUIPMENT_LIST", "")
+    # Lista padrão de 23 equipamentos monitorados no projeto
+    DEFAULT_EQUIPMENT_LIST: str = (
+        "SPK347,SPK348,SPK351,SPK352,SBR034,SBR136,SBR185,SBR244,SBR286,SBR292,"
+        "SBR298,SBR391,SBR392,SBR397,SBR399,SBR402,SBR403,SBR427,SBR506,SBR507,"
+        "SBR631,SBR745,SBR816"
+    )
+    EQUIPMENT_LIST: str = os.getenv("EQUIPMENT_LIST", DEFAULT_EQUIPMENT_LIST)
 
     # Google Sheets
     GOOGLE_SHEET_ID: str = os.getenv("GOOGLE_SHEET_ID", "")
@@ -83,10 +88,8 @@ class Settings:
 
     @classmethod
     def get_configured_equipments(cls) -> list[str]:
-        """Retorna a lista de equipamentos especificados manualmente no .env (se houver)."""
-        raw = os.getenv("EQUIPMENT_LIST", cls.EQUIPMENT_LIST)
-        if not raw:
-            return []
+        """Retorna a lista de equipamentos especificados no .env ou a lista padrão de 23 radares."""
+        raw = os.getenv("EQUIPMENT_LIST", cls.EQUIPMENT_LIST) or cls.DEFAULT_EQUIPMENT_LIST
         return [item.strip() for item in raw.split(",") if item.strip()]
 
     @classmethod
