@@ -1,0 +1,50 @@
+name: Monitoramento Diário de Fluxos Viários
+
+on:
+  # Agendamento automático (Horário UTC):
+  # 10:50 UTC = 07:50 Horário de Brasília
+  # 16:30 UTC = 13:30 Horário de Brasília
+  schedule:
+    - cron: '50 10 * * *'
+    - cron: '30 16 * * *'
+  
+  # Permite disparar manualmente pela aba 'Actions' no GitHub
+  workflow_dispatch:
+
+jobs:
+  monitor-flows:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Clonar Repositório
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 Instalar Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🌐 Instalar Navegadores Playwright
+        run: |
+          playwright install --with-deps chromium
+
+      - name: 🚗 Executar Monitoramento de Fluxos
+        env:
+          SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
+          SITE_LOGIN_URL: ${{ secrets.SITE_LOGIN_URL }}
+          SITE_FLOWS_URL: ${{ secrets.SITE_FLOWS_URL }}
+          SITE_USERNAME: ${{ secrets.SITE_USERNAME }}
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          HEADLESS: "True"
+          BROWSER_TIMEOUT_MS: "45000"
+          MOCK_MODE: "False"
+        run: |
+          python main.py
