@@ -31,28 +31,42 @@ class Settings:
     # Seletores CSS
     SELECTOR_USERNAME_INPUT: str = os.getenv(
         "SELECTOR_USERNAME_INPUT",
-        "input[name='username'], input[type='email'], #usuario, #login, input[type='text']"
+        "input[placeholder*='E-mail'], input[type='email'], input[formcontrolname='email'], input[name='username'], #usuario, #login, input[type='text']"
     )
     SELECTOR_PASSWORD_INPUT: str = os.getenv(
         "SELECTOR_PASSWORD_INPUT",
-        "input[name='password'], input[type='password'], #senha"
+        "input[placeholder*='Senha'], input[type='password'], input[formcontrolname='password'], input[name='password'], #senha"
     )
     SELECTOR_LOGIN_BUTTON: str = os.getenv(
         "SELECTOR_LOGIN_BUTTON",
-        "button[type='submit'], #btn-login, input[type='submit'], button:has-text('Entrar'), button:has-text('Login')"
+        "button:has-text('Acessar'), button[type='submit'], #btn-login, input[type='submit'], button:has-text('Entrar'), button:has-text('Login')"
     )
-    SELECTOR_EQUIPMENT_FILTER: str = os.getenv(
-        "SELECTOR_EQUIPMENT_FILTER",
-        "select[name='equipamento'], select#filtro-radar, select.filtro-equipamento, select"
+    # Seletores do Modal de Filtro
+    SELECTOR_FILTER_OPEN_BUTTON: str = os.getenv(
+        "SELECTOR_FILTER_OPEN_BUTTON",
+        "button:has-text('Filtrar'), button:has(.fa-filter), [title*='Filtrar'], [aria-label*='Filtrar'], .btn-filter, .btn-filtro"
     )
+    SELECTOR_MODAL_EQUIPMENT_INPUT: str = os.getenv(
+        "SELECTOR_MODAL_EQUIPMENT_INPUT",
+        "input[placeholder*='Equipamento'], input[aria-label*='Equipamento'], .mat-form-field:has-text('Equipamento') input, input[name='equipamento'], input[type='search'], input[type='text']"
+    )
+    SELECTOR_MODAL_SEARCH_BUTTON: str = os.getenv(
+        "SELECTOR_MODAL_SEARCH_BUTTON",
+        "button:has(.fa-search), button.btn-search, button:has-text('Buscar'), button.mat-icon-button, button.mat-fab, button:has(svg)"
+    )
+
+    # Seletores da Tabela / Grid
     SELECTOR_LANES_TABLE: str = os.getenv(
         "SELECTOR_LANES_TABLE",
-        "table.tabela-fluxos, #grid-faixas, table"
+        "table.tabela-fluxos, #grid-faixas, table, .mat-table, .grid-fluxos"
     )
     SELECTOR_LANE_ROWS: str = os.getenv(
         "SELECTOR_LANE_ROWS",
-        "tbody tr, tr.linha-faixa"
+        "tbody tr, tr.linha-faixa, .mat-row, tr"
     )
+
+    # Lista manual de equipamentos (opcional - separados por vírgula)
+    EQUIPMENT_LIST: str = os.getenv("EQUIPMENT_LIST", "")
 
     # Google Sheets
     GOOGLE_SHEET_ID: str = os.getenv("GOOGLE_SHEET_ID", "")
@@ -64,7 +78,16 @@ class Settings:
     # Execução
     HEADLESS: bool = os.getenv("HEADLESS", "True").strip().lower() in ("true", "1", "yes")
     BROWSER_TIMEOUT_MS: int = int(os.getenv("BROWSER_TIMEOUT_MS", "30000"))
+    INITIAL_PAGE_WAIT_SECONDS: int = int(os.getenv("INITIAL_PAGE_WAIT_SECONDS", "10"))
     MOCK_MODE: bool = os.getenv("MOCK_MODE", "False").strip().lower() in ("true", "1", "yes")
+
+    @classmethod
+    def get_configured_equipments(cls) -> list[str]:
+        """Retorna a lista de equipamentos especificados manualmente no .env (se houver)."""
+        raw = os.getenv("EQUIPMENT_LIST", cls.EQUIPMENT_LIST)
+        if not raw:
+            return []
+        return [item.strip() for item in raw.split(",") if item.strip()]
 
     @classmethod
     def get_google_credentials_dict(cls) -> Optional[dict]:
