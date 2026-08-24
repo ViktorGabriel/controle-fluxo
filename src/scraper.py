@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any
 from src.config import settings
 from src.models import EquipmentReport, LaneReading, ScanSummary, StatusEnum
@@ -10,6 +10,9 @@ from src.analyzer import FlowAnalyzer
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
+
+# Fuso horário oficial de Brasília (UTC-3)
+BRT = timezone(timedelta(hours=-3))
 
 
 class PortalScraper:
@@ -23,8 +26,8 @@ class PortalScraper:
         self.session_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "session_state.json")
 
     def _get_current_timestamp(self) -> str:
-        """Retorna a data e hora atual formatada no padrão brasileiro."""
-        return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        """Retorna a data e hora atual formatada no fuso horário de Brasília (UTC-3)."""
+        return datetime.now(BRT).strftime("%d/%m/%Y %H:%M:%S")
 
     def start_browser(self):
         """Inicializa o navegador Playwright com perfil anti-detecção e reutiliza sessão salva."""
@@ -315,16 +318,26 @@ class PortalScraper:
                     match = re.search(r"Equipamento:\s*([^\n\r]+)", txt)
                     lane_name = match.group(1).strip() if match else f"{equipment_id} - {idx}"
                     
-                    # Detecta presença de anomalias/células vermelhas no card da faixa
-                    rects = c.query_selector_all("rect, path, span, p, div, [style*='background']")
+                    # Analisa a área do gráfico, isolando da legenda do cabeçalho
+                    chart_area = c.query_selector("chart-mapa-unificado-minute, apx-chart")
                     has_red = False
-                    for r in rects:
-                        style_attr = r.get_attribute("style") or ""
-                        class_attr = r.get_attribute("class") or ""
-                        fill_attr = r.get_attribute("fill") or ""
-                        if FlowAnalyzer.is_red_style(class_attr, f"{style_attr} fill:{fill_attr}"):
+                    if chart_area:
+                        chart_txt = chart_area.inner_text().lower()
+                        if "não há dados" in chart_txt or "offline" in chart_txt or "erro ao carregar" in chart_txt:
                             has_red = True
-                            break
+                        else:
+                            # Busca apenas retângulos ou caminhos dentro da grade gráfica
+                            chart_elements = chart_area.query_selector_all("rect.apexcharts-heatmap-rect, rect, path")
+                            for el in chart_elements:
+                                cls_attr = el.get_attribute("class") or ""
+                                style_attr = el.get_attribute("style") or ""
+                                fill_attr = el.get_attribute("fill") or ""
+                                # Ignora elementos de fundo transparente/branco
+                                if fill_attr in ("", "none", "#ffffff", "#fff", "transparent"):
+                                    continue
+                                if FlowAnalyzer.is_red_style(cls_attr, f"{style_attr} fill:{fill_attr}"):
+                                    has_red = True
+                                    break
                     
                     reading = FlowAnalyzer.evaluate_reading(
                         timestamp=timestamp,
