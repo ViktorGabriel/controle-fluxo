@@ -54,6 +54,14 @@ jobs:
           SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          ALERT_EMAILS_TO: ${{ secrets.ALERT_EMAILS_TO }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           EQUIPMENT_LIST: ${{ secrets.EQUIPMENT_LIST || 'SPK347,SPK348,SPK351,SPK352,SBR034,SBR136,SBR185,SBR244,SBR286,SBR292,SBR298,SBR391,SBR392,SBR397,SBR399,SBR402,SBR403,SBR427,SBR506,SBR507,SBR631,SBR745,SBR816' }}
           INITIAL_PAGE_WAIT_SECONDS: "10"
           HEADLESS: "True"
@@ -61,3 +69,4 @@ jobs:
           MOCK_MODE: "False"
         run: |
           python main.py
+

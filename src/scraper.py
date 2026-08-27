@@ -81,9 +81,22 @@ class PortalScraper:
             "no_viewport": True,
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         }
+
+        # Se foi fornecida a sessão via Secret no GitHub Actions (SESSION_STATE_JSON), recria o arquivo local
+        session_env = os.getenv("SESSION_STATE_JSON")
+        if session_env and not os.path.exists(self.session_file):
+            try:
+                with open(self.session_file, "w", encoding="utf-8") as f:
+                    f.write(session_env)
+                logger.info("🔑 Sessão autenticada restaurada a partir da variável SESSION_STATE_JSON.")
+            except Exception as e:
+                logger.warning(f"Erro ao restaurar SESSION_STATE_JSON: {e}")
+
         if os.path.exists(self.session_file):
             logger.info("🔑 Sessão prévia encontrada (session_state.json). Reutilizando autenticação.")
             context_kwargs["storage_state"] = self.session_file
+
+
 
         self.context = self.browser.new_context(**context_kwargs)
         # Remove a flag navigator.webdriver
