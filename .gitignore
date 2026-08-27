@@ -35,9 +35,13 @@ htmlcov/
 .idea/
 *.swp
 
-# Debug and Temporary Artifacts
+# Debug, PyInstaller and Temporary Artifacts
+build/
+dist/
+*.spec
 debug_*.png
 *.png
 *.zip
 scratch/
+
 

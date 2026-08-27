@@ -6,18 +6,28 @@ Este pacote contém o sistema automatizado de monitoramento e auditoria periódi
 de fluxos em radares de trânsito viário, com integração automática ao Google Sheets.
 
 --------------------------------------------------------------------------------
-1. PRÉ-REQUISITO ÚNICO
+1. FORMAS DE EXECUTAR O SISTEMA (ESCOLHA A SUA PREFERIDA)
 --------------------------------------------------------------------------------
-* Ter o Python 3.10 ou superior instalado no computador.
-  - Download oficial gratuito: https://www.python.org/downloads/
-  - IMPORTANTE: Na tela de instalação do Python, marque a caixinha:
-    ☑️ "Add Python to PATH" (Adicionar Python às variáveis de ambiente).
+
+🔹 OPÇÃO 1: EXECUTÁVEL STANDALONE (.EXE) — SEM PRECISAR DE PYTHON INSTALADO!
+   • Na pasta 'dist/ControleFluxoViario/', existe o arquivo:
+     👉 ControleFluxoViario.exe
+   • O usuário da empresa NÃO precisa ter Python instalado. Basta dar 2 cliques
+     no 'Executar_Monitoramento.bat' ou direto no 'ControleFluxoViario.exe'.
+
+🔹 OPÇÃO 2: EXECUÇÃO VIA PYTHON / ATALHO .BAT
+   • Tendo o Python 3.10+ instalado no computador, basta dar 2 cliques em:
+     👉 Executar_Monitoramento.bat
+   • O script cria o ambiente isolado (venv) e instala os pacotes automaticamente.
+
+🔹 OPÇÃO 3: NUVEM SERVERLESS (GOOGLE CLOUD SCHEDULER / GITHUB ACTIONS)
+   • Roda 100% sozinho na nuvem às 07:50 e 13:30 sem precisar de computador ligado.
+   • Veja o guia completo em: 'CONFIGURACAO_GOOGLE_CLOUD_SCHEDULER.md'.
 
 --------------------------------------------------------------------------------
 2. CONFIGURAÇÃO INICIAL (FEITA APENAS 1 VEZ)
 --------------------------------------------------------------------------------
-Passo 1: Extraia esta pasta (.ZIP) em um local fixo no seu computador
-         (Exemplo: C:\Controle-Fluxo ou na sua Área de Trabalho).
+Passo 1: Extraia os arquivos em um local fixo no computador (ex: C:\Controle-Fluxo).
 
 Passo 2: Crie o arquivo de configurações '.env':
          - Faça uma cópia do arquivo '.env.example' e renomeie para '.env'.
@@ -26,42 +36,27 @@ Passo 2: Crie o arquivo de configurações '.env':
            • SITE_PASSWORD: Sua senha de acesso ao portal viário.
            • GOOGLE_SHEET_ID: O ID da planilha compartilhada do Google Sheets.
 
-Passo 3: Chave do Google Sheets (se aplicável):
-         - Coloque o arquivo 'service_account.json' na raiz desta pasta
-           (para autenticar com a planilha do Google Sheets).
+Passo 3: Chave do Google Sheets:
+         - Coloque o arquivo 'service_account.json' na raiz da pasta.
 
 --------------------------------------------------------------------------------
-3. COMO USAR NO DIA A DIA (1 CLIQUE)
---------------------------------------------------------------------------------
-* Para executar a verificação de rotina:
-  👉 Dê um duplo clique no arquivo: "Executar_Monitoramento.bat"
-
-  O sistema irá:
-  1. Criar o ambiente virtual e instalar o navegador automaticamente na 1ª vez.
-  2. Acessar o portal de trânsito.
-  3. Auditar todas as 60 faixas de radares cadastradas.
-  4. Preencher as abas 'Historico_Geral' e 'Pendencias_Tecnicas' no Google Sheets.
-  5. Exibir um resumo colorido na tela com as falhas encontradas.
-
---------------------------------------------------------------------------------
-4. COMO RESOLVER CAPTCHA / RENOVAR SESSÃO (SE NECESSÁRIO)
+3. COMO RESOLVER CAPTCHA / RENOVAR SESSÃO (SE NECESSÁRIO)
 --------------------------------------------------------------------------------
 * Se o portal exigir resolução de Captcha para entrar:
   👉 Dê um duplo clique no arquivo: "Resolver_Captcha_Login.bat"
+     (ou em 'dist/ResolverCaptcha/ResolverCaptcha.exe')
 
   1. O navegador Google Chrome vai abrir na sua tela.
-  2. O login e senha serão preenchidos automaticamente.
-  3. Resolva o Captcha na tela com o mouse e clique em "Entrar".
-  4. O script salvará os cookies no arquivo 'session_state.json'.
-  5. Pronto! As próximas execuções diárias entrarão direto sem pedir Captcha.
+  2. Resolva o Captcha na tela com o mouse e clique em "Entrar".
+  3. O script salvará os cookies no arquivo 'session_state.json'.
+  4. Pronto! As próximas execuções diárias entrarão direto sem pedir Captcha.
 
 --------------------------------------------------------------------------------
-5. ARQUIVOS PRINCIPAIS DESTE PACOTE
+4. COMO AGENDAR NO WINDOWS (AGENDADOR DE TAREFAS / TASK SCHEDULER)
 --------------------------------------------------------------------------------
-* Executar_Monitoramento.bat  -> Executável de 1 clique para rodar o robô.
-* Resolver_Captcha_Login.bat  -> Executável para abrir a tela e resolver Captcha.
-* main.py                     -> Código principal do monitoramento.
-* login_assistido.py          -> Código de captura da sessão com Captcha.
-* requirements.txt            -> Lista de bibliotecas necessárias.
-* src/                        -> Módulos internos (scraper, sheets, analyzer).
+1. Abra o menu Iniciar do Windows e digite "Agendador de Tarefas".
+2. Clique em "Criar Tarefa Básica".
+3. Nome: "Monitoramento Radares - Manhã", Disparador: Diariamente às 07:50.
+4. Ação: "Iniciar um programa" -> Selecione o 'Executar_Monitoramento.bat'.
+5. Repita o processo criando outra tarefa para as 13:30.
 ================================================================================

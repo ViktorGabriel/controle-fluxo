@@ -9,33 +9,44 @@ echo.
 
 cd /d "%~dp0"
 
-:: 1. Verifica se o Python esta instalado
-where python >nul 2>nul
-if %errorlevel% neq 0 (
-    echo [ERRO] Python nao foi encontrado no sistema.
-    echo Por favor, instale o Python 3.10+ do site python.org
+:: 1. Se existir o executavel standalone compilado (.exe), executa direto sem precisar de Python
+if exist "dist\ControleFluxoViario\ControleFluxoViario.exe" (
+    echo [*] Executando via executavel standalone (.exe)...
     echo.
-    pause
-    exit /b 1
+    dist\ControleFluxoViario\ControleFluxoViario.exe
+    goto :FIM
 )
 
-:: 2. Cria ambiente virtual se nao existir
-if not exist "venv\Scripts\activate.bat" (
-    echo [*] Criando ambiente virtual isolado (venv)...
-    python -m venv venv
-    echo [*] Instalando dependencias e navegadores...
-    call venv\Scripts\activate.bat
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-    playwright install chromium
-) else (
-    call venv\Scripts\activate.bat
+:: 2. Se existir Python Portatil na pasta, usa o interpretador portatil
+if exist "python_portable\python.exe" (
+    echo [*] Executando via Python Portatil embutido...
+    echo.
+    python_portable\python.exe main.py
+    goto :FIM
 )
 
-echo [*] Iniciando execucao do monitoramento...
-echo.
-python main.py
+:: 3. Se existir ambiente virtual venv, ativa e executa
+if exist "venv\Scripts\python.exe" (
+    echo [*] Executando via ambiente virtual (venv)...
+    echo.
+    venv\Scripts\python.exe main.py
+    goto :FIM
+)
 
+:: 4. Fallback: Usa o Python do sistema
+where python >nul 2>nul
+if %errorlevel% equ 0 (
+    echo [*] Executando via Python do sistema...
+    python main.py
+    goto :FIM
+)
+
+echo [ERRO] Nao foi possivel encontrar o executavel nem o Python no sistema.
+echo Por favor, coloque o executavel na pasta 'dist' ou instale o Python 3.10+
+pause
+exit /b 1
+
+:FIM
 echo.
 echo ======================================================================
 echo    🏁 Execucao concluida! Pressione qualquer tecla para fechar.
