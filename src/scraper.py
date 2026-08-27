@@ -228,7 +228,14 @@ class PortalScraper:
                 if btn_filtro.is_visible():
                     logger.info("Abrindo modal 'Filtrar no mapa'...")
                     btn_filtro.click()
-                    self.page.wait_for_timeout(1200)
+                    try:
+                        self.page.wait_for_selector(
+                            "modal-filter-mapa, mat-dialog-container, input#mat-input-0, input[placeholder*='equipamento']",
+                            state="visible",
+                            timeout=2500
+                        )
+                    except Exception:
+                        self.page.wait_for_timeout(300)
         except Exception as e:
             logger.warning(f"Erro ao abrir modal de filtro: {e}")
 
@@ -240,7 +247,7 @@ class PortalScraper:
             dt_input = self.page.locator("input#dtInicial, tvc-datetime input, input[type='month']").first
             if dt_input.is_visible():
                 dt_input.fill(current_iso_month)
-                self.page.wait_for_timeout(400)
+                self.page.wait_for_timeout(100)
         except Exception as e:
             logger.warning(f"Aviso ao preencher data: {e}")
 
@@ -256,22 +263,19 @@ class PortalScraper:
             equip_input.click()
             self.page.keyboard.press("Control+A")
             self.page.keyboard.press("Backspace")
-            self.page.wait_for_timeout(200)
 
             # Digita para disparar o autocomplete do Angular
-            self.page.keyboard.type(equipment_id, delay=100)
+            self.page.keyboard.type(equipment_id, delay=40)
             
             # Aguarda o painel do autocomplete abrir
             try:
                 self.page.wait_for_selector(
                     ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option",
                     state="visible",
-                    timeout=4000
+                    timeout=2000
                 )
             except Exception:
-                pass
-
-            self.page.wait_for_timeout(800)
+                self.page.wait_for_timeout(300)
 
             # Coleta todas as opções correspondentes às faixas
             opts = self.page.query_selector_all(
@@ -293,13 +297,13 @@ class PortalScraper:
                 ).filter(has_text=re.compile(rf"{re.escape(matched_lanes[0])}", re.IGNORECASE)).first
                 if first_opt.count() > 0 and first_opt.is_visible():
                     first_opt.click()
-                    self.page.wait_for_timeout(500)
+                    self.page.wait_for_timeout(200)
                 return matched_lanes
 
             # Se não abriu lista, tenta confirmar com Enter
             self.page.keyboard.press("ArrowDown")
             self.page.keyboard.press("Enter")
-            self.page.wait_for_timeout(500)
+            self.page.wait_for_timeout(200)
             return [equipment_id]
 
         except Exception as e:
@@ -316,18 +320,16 @@ class PortalScraper:
                 equip_input.click()
                 self.page.keyboard.press("Control+A")
                 self.page.keyboard.press("Backspace")
-                self.page.wait_for_timeout(200)
 
-                self.page.keyboard.type(base_radar, delay=80)
+                self.page.keyboard.type(base_radar, delay=35)
                 try:
                     self.page.wait_for_selector(
                         ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option",
                         state="visible",
-                        timeout=3500
+                        timeout=2000
                     )
                 except Exception:
-                    pass
-                self.page.wait_for_timeout(600)
+                    self.page.wait_for_timeout(250)
 
                 opts = self.page.query_selector_all(
                     ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option"
@@ -366,16 +368,16 @@ class PortalScraper:
 
                 if selected_opt:
                     selected_opt.click()
-                    self.page.wait_for_timeout(500)
+                    self.page.wait_for_timeout(200)
                 else:
                     self.page.keyboard.press("ArrowDown")
                     self.page.keyboard.press("Enter")
-                    self.page.wait_for_timeout(500)
+                    self.page.wait_for_timeout(200)
         except Exception as e:
             logger.warning(f"Erro ao selecionar radar {base_radar} (Faixa: {faixa_num}): {e}")
 
     def _click_search_and_wait(self):
-        """Clica no botão de pesquisar e aguarda estabilização dos gráficos."""
+        """Clica no botão de pesquisar e aguarda reativamente a renderização dos dados."""
         try:
             btn_busca = self.page.locator(
                 "tvc-button[icon='search'] button, button.primary.radius:has(mat-icon:has-text('search'))"
@@ -391,14 +393,30 @@ class PortalScraper:
 
             logger.info("⏳ Aguardando renderização do mapa e carregamento completo...")
             try:
-                self.page.wait_for_selector("tvc-placeholder-mapa-chart", state="detached", timeout=40000)
+                self.page.wait_for_selector("tvc-placeholder-mapa-chart", state="detached", timeout=30000)
             except Exception:
                 pass
 
-            for s in range(1, 6):
-                self.page.wait_for_timeout(1000)
-                if s % 3 == 0:
-                    logger.info(f"   Estabilizando grade do mapa ({s}/5s)...")
+            # Aguarda reativamente o DOM estar pronto com os dados do gráfico
+            try:
+                self.page.wait_for_function("""() => {
+                    const placeholder = document.querySelector('tvc-placeholder-mapa-chart');
+                    if (placeholder && placeholder.offsetParent !== null) return false;
+                    const cards = document.querySelectorAll('.main.flex.flex-col:has(card-header-mapa), .main.flex.flex-col');
+                    if (cards.length === 0) return false;
+                    for (let c of cards) {
+                        const svg = c.querySelector('apx-chart svg, .apexcharts-svg, svg');
+                        if (svg && svg.querySelectorAll('rect').length > 0) return true;
+                        if (window.ng && window.ng.getComponent) {
+                            const chartEl = c.querySelector('chart-mapa-unificado-minute') || c;
+                            const comp = window.ng.getComponent(chartEl);
+                            if (comp && comp.chartOptions && comp.chartOptions.series && comp.chartOptions.series.length > 0) return true;
+                        }
+                    }
+                    return false;
+                }""", timeout=4000)
+            except Exception:
+                self.page.wait_for_timeout(800)
         except Exception as e:
             logger.warning(f"Erro ao clicar na busca: {e}")
 
@@ -771,14 +789,18 @@ class PortalScraper:
                 logger.info(f"Navegando para página de mapa/fluxos: {settings.SITE_FLOWS_URL}")
                 self.page.goto(settings.SITE_FLOWS_URL, wait_until="domcontentloaded")
 
-            # Aguarda a estabilização e carregamento completo do mapa e módulos SPA
+            # Aguarda reativamente o botão de filtro e módulos SPA estarem prontos
             wait_sec = settings.INITIAL_PAGE_WAIT_SECONDS
-            if wait_sec > 0:
-                logger.info(f"⏳ Aguardando {wait_sec}s para o carregamento e estabilização completa do mapa/portal...")
-                for s in range(1, wait_sec + 1):
-                    self.page.wait_for_timeout(1000)
-                    if s % 10 == 0 or s == wait_sec:
-                        logger.info(f"   Carregando página do mapa ({s}/{wait_sec}s)...")
+            logger.info("⏳ Aguardando estabilização inicial do mapa e módulos do portal...")
+            try:
+                self.page.wait_for_selector(
+                    "button:has-text('Filtrar'), .btn-filtro, [title*='Filtrar'], .leaflet-container, canvas, tvc-button",
+                    state="visible",
+                    timeout=max(wait_sec * 1000, 5000)
+                )
+                self.page.wait_for_timeout(500)
+            except Exception:
+                self.page.wait_for_timeout(1500)
 
             equipments = self.get_equipment_list()
             if not equipments:
@@ -791,8 +813,7 @@ class PortalScraper:
                 rep = self.scrape_equipment_lanes(equip, timestamp)
                 summary.reports.append(rep)
                 if self.page:
-                    logger.info("⏳ Aguardando 2.5s para transição segura entre equipamentos...")
-                    self.page.wait_for_timeout(2500)
+                    self.page.wait_for_timeout(400)
 
             summary.total_equipments = len(summary.reports)
             summary.total_lanes = len(summary.all_readings)
