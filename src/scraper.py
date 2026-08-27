@@ -240,14 +240,16 @@ class PortalScraper:
             logger.warning(f"Erro ao abrir modal de filtro: {e}")
 
     def _fill_month_year(self):
-        """Preenche o campo de Mês/Ano no modal."""
+        """Preenche o campo de Mês/Ano no modal apenas se necessário."""
         now = datetime.now(BRT)
         current_iso_month = now.strftime("%Y-%m")
         try:
             dt_input = self.page.locator("input#dtInicial, tvc-datetime input, input[type='month']").first
             if dt_input.is_visible():
-                dt_input.fill(current_iso_month)
-                self.page.wait_for_timeout(100)
+                current_val = dt_input.input_value()
+                if current_val != current_iso_month:
+                    dt_input.fill(current_iso_month)
+                    self.page.wait_for_timeout(100)
         except Exception as e:
             logger.warning(f"Aviso ao preencher data: {e}")
 
