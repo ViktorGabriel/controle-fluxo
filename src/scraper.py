@@ -30,10 +30,33 @@ class PortalScraper:
         self.context: Optional[Any] = None
         self.page: Optional[Any] = None
         self.session_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "session_state.json")
+        self.intercepted_responses: List[dict] = []
 
     def _get_current_timestamp(self) -> str:
         """Retorna a data e hora atual formatada no fuso horário de Brasília (UTC-3)."""
         return datetime.now(BRT).strftime("%d/%m/%Y %H:%M:%S")
+
+    def _handle_network_response(self, response: Any):
+        """Intercepta requisições XHR/Fetch de respostas JSON para extração rápida de fluxos."""
+        try:
+            content_type = response.headers.get("content-type", "").lower()
+            if "application/json" in content_type and response.status == 200:
+                url = response.url.lower()
+                if any(k in url for k in ("fluxo", "equipamento", "radar", "mapa", "dados", "grafico", "serie", "chart", "relatorio")):
+                    try:
+                        data = response.json()
+                        if isinstance(data, (dict, list)):
+                            self.intercepted_responses.append({
+                                "url": response.url,
+                                "data": data,
+                                "timestamp": datetime.now(BRT)
+                            })
+                            if len(self.intercepted_responses) > 60:
+                                self.intercepted_responses.pop(0)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def start_browser(self):
         """Inicializa o navegador Playwright com perfil anti-detecção e reutiliza sessão salva."""
@@ -68,7 +91,13 @@ class PortalScraper:
         
         self.page = self.context.new_page()
         self.page.set_default_timeout(settings.BROWSER_TIMEOUT_MS)
+
+        if settings.ENABLE_NETWORK_INTERCEPTION:
+            self.page.on("response", self._handle_network_response)
+            logger.info("⚡ Interceptação de Rede em JSON (Network Fast-Path) ativada.")
+
         logger.info(f"Navegador Playwright iniciado (Headless={settings.HEADLESS}).")
+
 
     def close_browser(self):
         """Encerra as instâncias do navegador de forma segura, evitando processos órfãos."""
@@ -623,6 +652,57 @@ class PortalScraper:
                 report.readings.append(reading)
                 logger.info(f"   ✓ Faixa extraída: {formatted_lane} -> {status_enum.value} ({reading.failure_reason})")
 
+    def _try_extract_from_intercepted_json(self, base_radar: str, formatted_lane: str, timestamp: str) -> Optional[LaneReading]:
+        """Tenta extrair a leitura da faixa a partir dos payloads JSON capturados na rede."""
+        if not self.intercepted_responses:
+            return None
+
+        # Varre os responses mais recentes
+        for item in reversed(self.intercepted_responses):
+            data = item.get("data")
+            if not data:
+                continue
+
+            # Se for lista de registros
+            records = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+            for rec in records:
+                if not isinstance(rec, dict):
+                    continue
+
+                # Procura identificadores de radar/faixa nas chaves
+                rec_str = json.dumps(rec, ensure_ascii=False).lower()
+                radar_clean = base_radar.lower().replace("-", "")
+                if radar_clean in rec_str or base_radar.lower() in rec_str:
+                    # Encontrou payload relevante para o radar
+                    status = StatusEnum.OK
+                    reason = "Operação Normal"
+                    val = 1.0
+
+                    # Checa indicadores de falha no payload
+                    if any(k in rec_str for k in ("falha", "offline", "sem_comunicacao", "inativo", "erro", "danger")):
+                        status = StatusEnum.FALHA
+                        reason = "Alerta de falha no payload de rede JSON"
+                    elif "fluxo" in rec or "valor" in rec or "total" in rec:
+                        val_candidate = rec.get("fluxo") or rec.get("valor") or rec.get("total")
+                        parsed_val = FlowAnalyzer.parse_numeric_value(str(val_candidate))
+                        if parsed_val is not None:
+                            val = parsed_val
+                            if val == 0:
+                                status = StatusEnum.FALHA
+                                reason = "Fluxo zerado registrado no payload JSON"
+
+                    return LaneReading(
+                        timestamp=timestamp,
+                        equipment_id=base_radar,
+                        lane_number=formatted_lane,
+                        flow_value=val,
+                        raw_value=str(val),
+                        is_red_highlighted=(status == StatusEnum.FALHA),
+                        status=status,
+                        failure_reason=reason
+                    )
+        return None
+
     def scrape_equipment_lanes(self, target_lane: str, timestamp: str) -> EquipmentReport:
         """Aplica o filtro para uma faixa ou equipamento e extrai a leitura com precisão."""
         if not self.page:
@@ -657,15 +737,25 @@ class PortalScraper:
             # 4. Clica em Pesquisar e aguarda estabilização
             self._click_search_and_wait()
 
-            # 5. Rolagem completa da página
+            # 5. Fast-path: Verifica se os dados vieram diretamente via interceptação de resposta JSON
+            if settings.ENABLE_NETWORK_INTERCEPTION:
+                json_reading = self._try_extract_from_intercepted_json(base_radar, formatted_lane, timestamp)
+                if json_reading:
+                    report.readings.append(json_reading)
+                    report.has_failures = any(r.status == StatusEnum.FALHA for r in report.readings)
+                    logger.info(f"⚡ [Fast-Path JSON] Faixa extraída da rede: {formatted_lane} -> {json_reading.status.value}")
+                    return report
+
+            # 6. Rolagem completa da página
             self._scroll_full_page()
 
-            # 6. Extrai o card da faixa
+            # 7. Extrai o card da faixa
             self._extract_cards(report, timestamp, base_radar, formatted_lane, faixa_num, current_day)
 
             if report.readings:
                 report.has_failures = any(r.status == StatusEnum.FALHA for r in report.readings)
                 return report
+
 
             # 3. Fallback: Itera sobre as linhas de tabela padrão caso seja exibida em formato tabular
             rows = self.page.query_selector_all(settings.SELECTOR_LANE_ROWS)

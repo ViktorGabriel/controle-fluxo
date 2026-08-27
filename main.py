@@ -3,6 +3,7 @@ import logging
 import sys
 import time
 from src.config import settings
+from src.notifier import FailureNotifier
 from src.scraper import PortalScraper
 from src.sheets_service import SheetsService
 
@@ -84,6 +85,12 @@ def main():
     else:
         logger.warning("⚠️ GOOGLE_SHEET_ID não configurado. Dados não gravados no Google Sheets.")
 
+    # 3. Disparo de Notificações de Alerta (Opcionais)
+    if summary.total_failures > 0:
+        logger.info("-" * 65)
+        logger.info("🔔 Verificando canais de notificação para envio de alerta de falha...")
+        FailureNotifier.notify_if_failures(summary)
+
     elapsed = round(time.time() - start_time, 2)
     logger.info("=" * 65)
     logger.info(f"🏁 Execução finalizada com sucesso em {elapsed}s.")
@@ -92,3 +99,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

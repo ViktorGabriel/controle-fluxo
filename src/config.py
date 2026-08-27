@@ -105,6 +105,24 @@ class Settings:
             return default
         return val.strip().lower() in ("true", "1", "yes")
 
+    # Notificações de Alerta (Opcionais)
+    ALERT_WEBHOOK_URL: str = os.getenv("ALERT_WEBHOOK_URL", "")
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = _safe_int("SMTP_PORT", 587)
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_USE_TLS: bool = _safe_bool("SMTP_USE_TLS", True)
+    ALERT_EMAILS_TO: str = os.getenv("ALERT_EMAILS_TO", "")
+
+    # Resiliência no Google Sheets
+    SHEETS_MAX_RETRIES: int = _safe_int("SHEETS_MAX_RETRIES", 4)
+    SHEETS_BACKOFF_BASE_SECONDS: float = float(os.getenv("SHEETS_BACKOFF_BASE_SECONDS", "1.5"))
+
+    # Interceptação de Rede (Fast-path JSON)
+    ENABLE_NETWORK_INTERCEPTION: bool = _safe_bool("ENABLE_NETWORK_INTERCEPTION", True)
+
     # Execução
     HEADLESS: bool = _safe_bool("HEADLESS", True)
     BROWSER_TIMEOUT_MS: int = _safe_int("BROWSER_TIMEOUT_MS", 30000)
@@ -117,6 +135,13 @@ class Settings:
         """Retorna a lista de equipamentos especificados no .env ou a lista padrão de 23 radares."""
         raw = os.getenv("EQUIPMENT_LIST", cls.EQUIPMENT_LIST) or cls.DEFAULT_EQUIPMENT_LIST
         return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @classmethod
+    def get_alert_recipients(cls) -> list[str]:
+        """Retorna a lista de e-mails configurados para receber alertas."""
+        raw = os.getenv("ALERT_EMAILS_TO") or getattr(cls, "ALERT_EMAILS_TO", "") or getattr(settings, "ALERT_EMAILS_TO", "")
+        return [email.strip() for email in raw.split(",") if email.strip()]
+
 
     @classmethod
     def get_google_credentials_dict(cls) -> Optional[dict]:
@@ -138,3 +163,4 @@ class Settings:
 
 
 settings = Settings()
+
