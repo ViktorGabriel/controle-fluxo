@@ -36,6 +36,16 @@ def main():
     scraper = PortalScraper()
     summary = scraper.run_full_scan()
 
+    if not summary.success or summary.total_equipments == 0:
+        logger.error("-" * 65)
+        logger.error(f"❌ Escaneamento incompleto ou abortado: {summary.error_message or 'Nenhum dado retornado'}")
+        logger.error("-" * 65)
+        elapsed = round(time.time() - start_time, 2)
+        logger.info("=" * 65)
+        logger.info(f"⚠️ Execução finalizada com pendências/erros após {elapsed}s.")
+        logger.info("=" * 65)
+        return
+
     logger.info("-" * 65)
     logger.info(f"📊 RESUMO DA EXECUÇÃO ({summary.execution_time}):")
     logger.info(f"   • Total de Equipamentos Verificados: {summary.total_equipments}")
@@ -56,17 +66,21 @@ def main():
 
     # 2. Integração e gravação no Google Sheets
     if settings.GOOGLE_SHEET_ID:
-        logger.info("-" * 65)
-        logger.info("📤 Atualizando planilha do Google Sheets...")
-        sheets_svc = SheetsService()
-        success = sheets_svc.append_readings(
-            all_readings=summary.all_readings,
-            failed_readings=summary.failed_readings
-        )
-        if success:
-            logger.info("🎉 Planilha atualizada com sucesso!")
+        if settings.MOCK_MODE and not settings.ALLOW_MOCK_SHEETS_RECORDING:
+            logger.info("-" * 65)
+            logger.info("ℹ️ Modo MOCK ativo: gravação na planilha Google Sheets ignorada para proteger os dados.")
         else:
-            logger.error("❌ Ocorreu um erro ao atualizar o Google Sheets.")
+            logger.info("-" * 65)
+            logger.info("📤 Atualizando planilha do Google Sheets...")
+            sheets_svc = SheetsService()
+            success = sheets_svc.append_readings(
+                all_readings=summary.all_readings,
+                failed_readings=summary.failed_readings
+            )
+            if success:
+                logger.info("🎉 Planilha atualizada com sucesso!")
+            else:
+                logger.error("❌ Ocorreu um erro ao atualizar o Google Sheets.")
     else:
         logger.warning("⚠️ GOOGLE_SHEET_ID não configurado. Dados não gravados no Google Sheets.")
 

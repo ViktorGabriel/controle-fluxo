@@ -65,6 +65,8 @@ class ScanSummary:
     total_lanes: int = 0
     total_failures: int = 0
     reports: List[EquipmentReport] = field(default_factory=list)
+    success: bool = True
+    error_message: Optional[str] = None
 
     @property
     def all_readings(self) -> List[LaneReading]:

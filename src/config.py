@@ -54,6 +54,10 @@ class Settings:
         "SELECTOR_MODAL_SEARCH_BUTTON",
         "button:has(.fa-search), button.btn-search, button:has-text('Buscar'), button.mat-icon-button, button.mat-fab, button:has(svg)"
     )
+    SELECTOR_EQUIPMENT_FILTER: str = os.getenv(
+        "SELECTOR_EQUIPMENT_FILTER",
+        "select#equipamento, select[name='equipamento'], select.filtro-equipamento, select"
+    )
 
     # Seletores da Tabela / Grid
     SELECTOR_LANES_TABLE: str = os.getenv(
@@ -65,11 +69,15 @@ class Settings:
         "tbody tr, tr.linha-faixa, .mat-row, tr"
     )
 
-    # Lista padrão de 23 equipamentos monitorados no projeto
+    # Lista padrão de 60 faixas monitoradas no projeto
     DEFAULT_EQUIPMENT_LIST: str = (
-        "SPK347,SPK348,SPK351,SPK352,SBR034,SBR136,SBR185,SBR244,SBR286,SBR292,"
-        "SBR298,SBR391,SBR392,SBR397,SBR399,SBR402,SBR403,SBR427,SBR506,SBR507,"
-        "SBR631,SBR745,SBR816"
+        "SPK347-1,SPK347-2,SPK348-1,SPK348-2,SPK351-1,SPK351-2,SPK352-1,SPK352-2,"
+        "SBR034-1,SBR034-2,SBR034-3,SBR136-1,SBR185-2,SBR185-3,SBR244-1,SBR244-2,SBR244-3,"
+        "SBR286-4,SBR286-5,SBR292-1,SBR292-2,SBR292-3,SBR298-1,SBR298-2,SBR391-1,SBR391-2,SBR391-3,"
+        "SBR392-1,SBR392-2,SBR392-3,SBR397-3,SBR397-4,SBR397-5,SBR399-1,SBR399-2,"
+        "SBR402-1,SBR402-2,SBR402-3,SBR402-4,SBR403-1,SBR403-2,SBR403-3,SBR427-1,SBR427-2,SBR427-3,"
+        "SBR506-1,SBR506-2,SBR506-3,SBR507-1,SBR507-2,SBR507-3,SBR631-1,SBR631-2,SBR631-3,"
+        "SBR745-1,SBR745-2,SBR745-3,SBR816-1,SBR816-2,SBR816-3"
     )
     EQUIPMENT_LIST: str = os.getenv("EQUIPMENT_LIST", DEFAULT_EQUIPMENT_LIST)
 
@@ -80,11 +88,29 @@ class Settings:
     SHEET_TAB_HISTORY: str = os.getenv("SHEET_TAB_HISTORY", "Historico_Geral")
     SHEET_TAB_PENDING: str = os.getenv("SHEET_TAB_PENDING", "Pendencias_Tecnicas")
 
+    @staticmethod
+    def _safe_int(env_name: str, default: int) -> int:
+        val = os.getenv(env_name, "")
+        if not val or not val.strip():
+            return default
+        try:
+            return int(val.strip())
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _safe_bool(env_name: str, default: bool) -> bool:
+        val = os.getenv(env_name, "")
+        if not val or not val.strip():
+            return default
+        return val.strip().lower() in ("true", "1", "yes")
+
     # Execução
-    HEADLESS: bool = os.getenv("HEADLESS", "True").strip().lower() in ("true", "1", "yes")
-    BROWSER_TIMEOUT_MS: int = int(os.getenv("BROWSER_TIMEOUT_MS", "30000"))
-    INITIAL_PAGE_WAIT_SECONDS: int = int(os.getenv("INITIAL_PAGE_WAIT_SECONDS", "10"))
-    MOCK_MODE: bool = os.getenv("MOCK_MODE", "False").strip().lower() in ("true", "1", "yes")
+    HEADLESS: bool = _safe_bool("HEADLESS", True)
+    BROWSER_TIMEOUT_MS: int = _safe_int("BROWSER_TIMEOUT_MS", 30000)
+    INITIAL_PAGE_WAIT_SECONDS: int = _safe_int("INITIAL_PAGE_WAIT_SECONDS", 10)
+    MOCK_MODE: bool = _safe_bool("MOCK_MODE", False)
+    ALLOW_MOCK_SHEETS_RECORDING: bool = _safe_bool("ALLOW_MOCK_SHEETS_RECORDING", False)
 
     @classmethod
     def get_configured_equipments(cls) -> list[str]:

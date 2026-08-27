@@ -8,9 +8,13 @@ class TestFlowAnalyzer(unittest.TestCase):
     def test_parse_numeric_value_valid(self):
         self.assertEqual(FlowAnalyzer.parse_numeric_value("1250"), 1250.0)
         self.assertEqual(FlowAnalyzer.parse_numeric_value("1.250,50"), 1250.50)
+        self.assertEqual(FlowAnalyzer.parse_numeric_value("1,250.50"), 1250.50)
+        self.assertEqual(FlowAnalyzer.parse_numeric_value("1.250.000,00"), 1250000.0)
+        self.assertEqual(FlowAnalyzer.parse_numeric_value("1,250,000.00"), 1250000.0)
         self.assertEqual(FlowAnalyzer.parse_numeric_value("1250.75"), 1250.75)
         self.assertEqual(FlowAnalyzer.parse_numeric_value(" 450 "), 450.0)
         self.assertEqual(FlowAnalyzer.parse_numeric_value("0"), 0.0)
+        self.assertEqual(FlowAnalyzer.parse_numeric_value("0,0"), 0.0)
 
     def test_parse_numeric_value_empty_and_null(self):
         self.assertIsNone(FlowAnalyzer.parse_numeric_value(""))
@@ -20,17 +24,26 @@ class TestFlowAnalyzer(unittest.TestCase):
         self.assertIsNone(FlowAnalyzer.parse_numeric_value("None"))
 
     def test_is_red_style_detection(self):
-        # Classes CSS
+        # Classes CSS de falha/alerta
         self.assertTrue(FlowAnalyzer.is_red_style(class_names="status-danger", style_attr=""))
         self.assertTrue(FlowAnalyzer.is_red_style(class_names="text-red-500 font-bold", style_attr=""))
         self.assertTrue(FlowAnalyzer.is_red_style(class_names="badge badge-falha", style_attr=""))
+        self.assertTrue(FlowAnalyzer.is_red_style(class_names="sem-fluxo", style_attr=""))
+        self.assertTrue(FlowAnalyzer.is_red_style(class_names="alert-danger", style_attr=""))
         
-        # Inline styles
+        # Inline styles de falha/alerta
         self.assertTrue(FlowAnalyzer.is_red_style(class_names="", style_attr="color: #ff0000;"))
+        self.assertTrue(FlowAnalyzer.is_red_style(class_names="", style_attr="fill: #ef4444;"))
         self.assertTrue(FlowAnalyzer.is_red_style(class_names="", style_attr="background-color: rgb(220, 53, 69);"))
+        self.assertTrue(FlowAnalyzer.is_red_style(class_names="", style_attr="background: rgb(254, 226, 226);"))
         
-        # Não vermelho
+        # Elementos normais (NÃO devem ser detectados como vermelho)
         self.assertFalse(FlowAnalyzer.is_red_style(class_names="status-ok text-success", style_attr="color: green;"))
+        self.assertFalse(FlowAnalyzer.is_red_style(class_names="", style_attr="background-color: #ffffff;"))
+        self.assertFalse(FlowAnalyzer.is_red_style(class_names="", style_attr="background: #ffffff"))
+        self.assertFalse(FlowAnalyzer.is_red_style(class_names="bordered", style_attr=""))
+        self.assertFalse(FlowAnalyzer.is_red_style(class_names="alert-success", style_attr=""))
+        self.assertFalse(FlowAnalyzer.is_red_style(class_names="alert-info", style_attr=""))
         self.assertFalse(FlowAnalyzer.is_red_style(class_names="", style_attr=""))
 
     def test_evaluate_reading_normal(self):
@@ -131,7 +144,33 @@ class TestFlowAnalyzer(unittest.TestCase):
         pending_row = reading.to_pending_row()
         self.assertEqual(pending_row[6], "Pendente Técnico")
 
+    def test_evaluate_reading_none_safe(self):
+        reading = FlowAnalyzer.evaluate_reading(
+            timestamp="25/08/2026 10:00:00",
+            equipment_id="RADAR-03",
+            lane_number="Faixa 1",
+            raw_value=None,
+            is_red_highlighted=False
+        )
+        self.assertEqual(reading.status, StatusEnum.FALHA)
+        self.assertIn("vazio ou não preenchido", reading.failure_reason)
+
+    def test_evaluate_consecutive_readings_edge_cases(self):
+        # Histórico com dicionários incompletos ou None
+        history = [
+            {"value": None, "is_red": False},
+            {"value": "1000"}
+        ]
+        reading = FlowAnalyzer.evaluate_consecutive_readings(
+            timestamp="25/08/2026 10:00:00",
+            equipment_id="RADAR-04",
+            lane_number="Faixa 1",
+            readings_history=history
+        )
+        self.assertEqual(reading.status, StatusEnum.OK)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

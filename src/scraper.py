@@ -65,19 +65,40 @@ class PortalScraper:
         logger.info(f"Navegador Playwright iniciado (Headless={settings.HEADLESS}).")
 
     def close_browser(self):
-        """Encerra as instâncias do navegador de forma segura."""
-        try:
-            if self.page:
+        """Encerra as instâncias do navegador de forma segura, evitando processos órfãos."""
+        if self.page:
+            try:
                 self.page.close()
-            if self.context:
+            except Exception as e:
+                logger.debug(f"Aviso ao fechar página: {e}")
+            finally:
+                self.page = None
+
+        if self.context:
+            try:
                 self.context.close()
-            if self.browser:
+            except Exception as e:
+                logger.debug(f"Aviso ao fechar contexto: {e}")
+            finally:
+                self.context = None
+
+        if self.browser:
+            try:
                 self.browser.close()
-            if self.playwright:
+            except Exception as e:
+                logger.debug(f"Aviso ao fechar navegador: {e}")
+            finally:
+                self.browser = None
+
+        if self.playwright:
+            try:
                 self.playwright.stop()
-            logger.info("Navegador encerrado.")
-        except Exception as e:
-            logger.warning(f"Erro ao fechar navegador: {e}")
+            except Exception as e:
+                logger.debug(f"Aviso ao parar playwright: {e}")
+            finally:
+                self.playwright = None
+
+        logger.info("Recursos do navegador encerrados com sucesso.")
 
     def is_authenticated(self) -> bool:
         """Verifica se a página atual está fora da tela de login."""
@@ -196,17 +217,10 @@ class PortalScraper:
             )
             return []
 
-    def open_filter_and_search(self, equipment_id: str) -> bool:
-        """Abre o modal 'Filtrar no mapa', preenche Mês/Ano e Equipamento, e clica no botão de busca."""
-        if not self.page:
-            return False
-
-        now = datetime.now()
-        mes_ano_num = now.strftime("%m%Y")  # ex: 082026 para inputs com máscara
-
+    def _ensure_filter_modal_open(self):
+        """Garante que o modal 'Filtrar no mapa' está aberto e visível."""
         try:
-            # 1. Garante que o modal 'Filtrar no mapa' está aberto para a busca atual
-            modal = self.page.locator("*:has-text('Filtrar no mapa')")
+            modal = self.page.locator("modal-filter-mapa, mat-dialog-container:has-text('Filtrar no mapa')")
             if modal.count() == 0 or not modal.first.is_visible():
                 btn_filtro = self.page.locator(
                     "button:has-text('Filtrar'), [title*='Filtrar'], [aria-label*='Filtrar'], .btn-filtro, .btn-filter"
@@ -214,23 +228,89 @@ class PortalScraper:
                 if btn_filtro.is_visible():
                     logger.info("Abrindo modal 'Filtrar no mapa'...")
                     btn_filtro.click()
-                    self.page.wait_for_timeout(1500)
+                    self.page.wait_for_timeout(1200)
+        except Exception as e:
+            logger.warning(f"Erro ao abrir modal de filtro: {e}")
 
-            # 2. PRIMEIRO: Preenchimento nativo do campo Mês/Ano (ISO YYYY-MM)
-            current_iso_month = now.strftime("%Y-%m")  # ex: '2026-08'
-            logger.info(f"📅 [Passo 1/2] Preenchendo Mês/Ano: {current_iso_month}...")
-            try:
-                self.page.fill("input#dtInicial, tvc-datetime input, input[type='month']", current_iso_month)
-                self.page.wait_for_timeout(800)
-                val = self.page.locator("input#dtInicial, tvc-datetime input").input_value()
-                logger.info(f"✅ Mês/Ano preenchido e validado: '{val}'")
-            except Exception as e:
-                logger.warning(f"Aviso ao preencher data: {e}")
+    def _fill_month_year(self):
+        """Preenche o campo de Mês/Ano no modal."""
+        now = datetime.now(BRT)
+        current_iso_month = now.strftime("%Y-%m")
+        try:
+            dt_input = self.page.locator("input#dtInicial, tvc-datetime input, input[type='month']").first
+            if dt_input.is_visible():
+                dt_input.fill(current_iso_month)
+                self.page.wait_for_timeout(400)
+        except Exception as e:
+            logger.warning(f"Aviso ao preencher data: {e}")
 
-            # 3. SEGUNDO: Preenchimento do Equipamento
-            logger.info(f"🚗 [Passo 2/2] Preenchendo equipamento: {equipment_id}...")
+    def _discover_and_get_lanes(self, equipment_id: str) -> List[str]:
+        """Digita o equipamento no input, aguarda o autocomplete, captura todas as opções de faixas e seleciona a primeira."""
+        try:
             equip_input = self.page.locator(
-                "input#mat-input-0, input[placeholder*='equipamento'], input[formcontrolname='equipamentoMapa'], input"
+                "input#mat-input-0, input[placeholder*='equipamento'], input[formcontrolname='equipamentoMapa']"
+            ).first
+            if not equip_input.is_visible():
+                return [equipment_id]
+
+            equip_input.click()
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.press("Backspace")
+            self.page.wait_for_timeout(200)
+
+            # Digita para disparar o autocomplete do Angular
+            self.page.keyboard.type(equipment_id, delay=100)
+            
+            # Aguarda o painel do autocomplete abrir
+            try:
+                self.page.wait_for_selector(
+                    ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option",
+                    state="visible",
+                    timeout=4000
+                )
+            except Exception:
+                pass
+
+            self.page.wait_for_timeout(800)
+
+            # Coleta todas as opções correspondentes às faixas
+            opts = self.page.query_selector_all(
+                ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option"
+            )
+            matched_lanes = []
+            for o in opts:
+                txt = o.inner_text().strip()
+                txt_clean = " ".join(txt.split())
+                if equipment_id.lower() in txt_clean.lower():
+                    matched_lanes.append(txt_clean)
+
+            matched_lanes = list(dict.fromkeys(matched_lanes))
+
+            # Se encontrou opções, clica na primeira opção para já deixar selecionada
+            if matched_lanes:
+                first_opt = self.page.locator(
+                    ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option"
+                ).filter(has_text=re.compile(rf"{re.escape(matched_lanes[0])}", re.IGNORECASE)).first
+                if first_opt.count() > 0 and first_opt.is_visible():
+                    first_opt.click()
+                    self.page.wait_for_timeout(500)
+                return matched_lanes
+
+            # Se não abriu lista, tenta confirmar com Enter
+            self.page.keyboard.press("ArrowDown")
+            self.page.keyboard.press("Enter")
+            self.page.wait_for_timeout(500)
+            return [equipment_id]
+
+        except Exception as e:
+            logger.warning(f"Erro na descoberta de faixas para {equipment_id}: {e}")
+            return [equipment_id]
+
+    def _select_lane_in_input(self, base_radar: str, faixa_num: Optional[str] = None):
+        """Digita o radar no autocomplete e seleciona a faixa desejada por texto ou posição."""
+        try:
+            equip_input = self.page.locator(
+                "input#mat-input-0, input[placeholder*='equipamento'], input[formcontrolname='equipamentoMapa']"
             ).first
             if equip_input.is_visible():
                 equip_input.click()
@@ -238,31 +318,68 @@ class PortalScraper:
                 self.page.keyboard.press("Backspace")
                 self.page.wait_for_timeout(200)
 
-                # Digita tecla por tecla para disparar os eventos do autocomplete Angular
-                self.page.keyboard.type(equipment_id, delay=120)
-                self.page.wait_for_timeout(1500)
+                self.page.keyboard.type(base_radar, delay=80)
+                try:
+                    self.page.wait_for_selector(
+                        ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option",
+                        state="visible",
+                        timeout=3500
+                    )
+                except Exception:
+                    pass
+                self.page.wait_for_timeout(600)
 
-                # Localiza a opção correspondente ao equipamento digitado no autocomplete
-                matched_opt = self.page.locator(
+                opts = self.page.query_selector_all(
                     ".mat-mdc-autocomplete-panel mat-option, [role='option'], .mat-option"
-                ).filter(has_text=re.compile(rf"{equipment_id}", re.IGNORECASE)).first
+                )
+                
+                # Filtra opções que pertencem a este radar
+                matching_opts = [o for o in opts if base_radar.lower() in o.inner_text().lower()]
+                if not matching_opts:
+                    matching_opts = opts
 
-                if matched_opt.count() > 0 and matched_opt.is_visible():
-                    logger.info(f"Clicando na opção do autocomplete para {equipment_id}...")
-                    matched_opt.click()
-                    self.page.wait_for_timeout(800)
+                selected_opt = None
+                
+                # 1. Tenta encontrar opção cujo texto contenha especificamente a faixa (ex: "4" ou "- 4" ou "Faixa 4")
+                if faixa_num and matching_opts:
+                    for o in matching_opts:
+                        txt = o.inner_text().strip()
+                        if re.search(rf"(?:-|\bFaixa\b|\b)\s*{re.escape(faixa_num)}\b", txt, re.IGNORECASE):
+                            selected_opt = o
+                            break
+
+                # 2. Se não encontrou por texto mas faixa_num é numérico, seleciona por índice (ex: faixa 1 -> índice 0, faixa 4 -> índice 3)
+                if not selected_opt and faixa_num and matching_opts:
+                    try:
+                        num = int(faixa_num)
+                        if 1 <= num <= len(matching_opts):
+                            selected_opt = matching_opts[num - 1]
+                        else:
+                            # Caso as faixas comecem em números como 4 e 5 (ex: SBR286), seleciona pela ordem
+                            selected_opt = matching_opts[0]
+                    except ValueError:
+                        pass
+
+                # 3. Fallback: primeira opção correspondente
+                if not selected_opt and matching_opts:
+                    selected_opt = matching_opts[0]
+
+                if selected_opt:
+                    selected_opt.click()
+                    self.page.wait_for_timeout(500)
                 else:
-                    logger.info(f"Opção exata não encontrada no dropdown, confirmando com Enter...")
                     self.page.keyboard.press("ArrowDown")
-                    self.page.wait_for_timeout(200)
                     self.page.keyboard.press("Enter")
-                    self.page.wait_for_timeout(800)
+                    self.page.wait_for_timeout(500)
+        except Exception as e:
+            logger.warning(f"Erro ao selecionar radar {base_radar} (Faixa: {faixa_num}): {e}")
 
-            # 4. Clique no botão de Buscar (círculo preto com ícone de lupa)
-            self.page.wait_for_timeout(1000)
-            logger.info("🔎 Clicando no botão de busca (lupa)...")
-            
-            btn_busca = self.page.locator("tvc-button[icon='search'] button, button.primary.radius:has(mat-icon:has-text('search'))").first
+    def _click_search_and_wait(self):
+        """Clica no botão de pesquisar e aguarda estabilização dos gráficos."""
+        try:
+            btn_busca = self.page.locator(
+                "tvc-button[icon='search'] button, button.primary.radius:has(mat-icon:has-text('search'))"
+            ).first
             if btn_busca.count() > 0 and btn_busca.is_visible():
                 btn_busca.click(force=True)
             else:
@@ -272,148 +389,261 @@ class PortalScraper:
                         b.click(force=True)
                         break
 
-            # 5. Aguarda o término do carregamento da grade e estabilização completa
-            logger.info("⏳ Aguardando renderização do mapa e dos fluxos do equipamento...")
+            logger.info("⏳ Aguardando renderização do mapa e carregamento completo...")
             try:
-                self.page.wait_for_selector("tvc-placeholder-mapa-chart", state="detached", timeout=45000)
+                self.page.wait_for_selector("tvc-placeholder-mapa-chart", state="detached", timeout=40000)
             except Exception:
                 pass
 
-            logger.info("⏳ Aguardando 8s para estabilização completa dos gráficos e faixas...")
-            for s in range(1, 9):
+            for s in range(1, 6):
                 self.page.wait_for_timeout(1000)
-                if s % 4 == 0:
-                    logger.info(f"   Estabilizando mapa ({s}/8s)...")
-
-            return True
+                if s % 3 == 0:
+                    logger.info(f"   Estabilizando grade do mapa ({s}/5s)...")
         except Exception as e:
-            logger.warning(f"Erro ao aplicar filtro para {equipment_id}: {e}")
-            try:
-                self.page.screenshot(path="debug_filter_error.png")
-            except Exception:
-                pass
-            return False
+            logger.warning(f"Erro ao clicar na busca: {e}")
 
-    def scrape_equipment_lanes(self, equipment_id: str, timestamp: str) -> EquipmentReport:
-        """Aplica o filtro para um equipamento base e extrai os dados de todas as faixas retornadas."""
+    def _scroll_full_page(self):
+        """Executa rolagem progressiva vertical para garantir renderização de todos os cards."""
+        for scroll_y in range(0, 3200, 400):
+            self.page.evaluate(f"""() => {{
+                window.scrollTo(0, {scroll_y});
+                document.querySelectorAll('.overflow-y-auto, [cdkScrollable], mat-sidenav-content, .main-content').forEach(el => {{
+                    el.scrollTop = {scroll_y};
+                }});
+            }}""")
+            self.page.wait_for_timeout(150)
+
+        self.page.evaluate("""() => {
+            window.scrollTo(0, 0);
+            document.querySelectorAll('.overflow-y-auto, [cdkScrollable], mat-sidenav-content, .main-content').forEach(el => {
+                el.scrollTop = 0;
+            });
+        }""")
+        self.page.wait_for_timeout(300)
+
+    def _extract_cards(self, report, timestamp, base_radar, formatted_lane, faixa_num, current_day):
+        """Extrai o card da faixa correspondente renderizada na tela."""
+        cards = self.page.query_selector_all(".main.flex.flex-col:has(card-header-mapa), .main.flex.flex-col")
+        if cards:
+            logger.info(f"📊 Detectados {len(cards)} cards na tela.")
+            target_card = None
+            for c in cards:
+                header = c.query_selector("card-header-mapa")
+                txt = header.inner_text().strip() if header else c.inner_text().strip()
+                if faixa_num and f"- {faixa_num}" in txt:
+                    target_card = c
+                    break
+                elif base_radar in txt:
+                    target_card = c
+
+            if not target_card and cards:
+                target_card = cards[0]
+
+            if target_card:
+                try:
+                    target_card.scroll_into_view_if_needed()
+                    self.page.wait_for_timeout(300)
+                except Exception:
+                    pass
+
+                for _ in range(8):
+                    has_rendered = target_card.evaluate("""el => {
+                        const svg = el.querySelector('apx-chart svg, .apexcharts-svg, svg');
+                        if (svg && svg.querySelectorAll('rect').length > 0) return true;
+                        if (window.ng && window.ng.getComponent) {
+                            const chartEl = el.querySelector('chart-mapa-unificado-minute') || el;
+                            const comp = window.ng.getComponent(chartEl);
+                            if (comp && comp.chartOptions && comp.chartOptions.series) return true;
+                        }
+                        return false;
+                    }""")
+                    if has_rendered:
+                        break
+                    self.page.wait_for_timeout(500)
+
+                eval_result = target_card.evaluate("""(el, todayDay) => {
+                    const chartEl = el.querySelector('chart-mapa-unificado-minute') || el;
+                    if (window.ng && window.ng.getComponent) {
+                        try {
+                            const comp = window.ng.getComponent(chartEl);
+                            if (comp && comp.chartOptions && comp.chartOptions.series) {
+                                const series = comp.chartOptions.series;
+                                let intervalsToday = [];
+                                for (let s of series) {
+                                    if (s.data && s.data.length >= todayDay) {
+                                        const pt = s.data[todayDay - 1];
+                                        if (pt !== null && pt !== undefined) {
+                                            let val = 0;
+                                            let isRed = false;
+                                            if (typeof pt === 'number') {
+                                                val = pt;
+                                                isRed = (val === 0);
+                                            } else if (typeof pt === 'object') {
+                                                val = Number(pt.y !== undefined ? pt.y : (Array.isArray(pt) ? pt[1] : 0));
+                                                isRed = (val === 0 || (pt.fillColor && String(pt.fillColor).toLowerCase().includes('red')));
+                                            }
+                                            intervalsToday.push({
+                                                time: s.name || '',
+                                                val: val,
+                                                isRed: isRed
+                                            });
+                                        }
+                                    }
+                                }
+                                if (intervalsToday.length > 0) {
+                                    const last2 = intervalsToday.slice(-2);
+                                    const bothRed = last2.length === 2 && last2.every(r => r.isRed || r.val === 0);
+                                    const lastOneRed = last2.length >= 1 && (last2[last2.length - 1].isRed || last2[last2.length - 1].val === 0);
+                                    
+                                    let status = 'OK';
+                                    let reason = 'Operação Normal';
+                                    if (bothRed) {
+                                        status = 'FALHA';
+                                        reason = '🚨 OFFLINE: Penúltimo e último períodos consecutivos em vermelho / sem fluxo';
+                                    } else if (lastOneRed) {
+                                        status = 'ALERTA';
+                                        reason = '⚠️ ALERTA: Último período em vermelho (penúltimo operou normalmente)';
+                                    }
+                                    const lastVal = last2.length > 0 ? (last2[last2.length - 1].val > 0 ? last2[last2.length - 1].val : 0.0) : 1.0;
+                                    return { status, reason, value: (status === 'OK' && lastVal === 0 ? 1.0 : lastVal) };
+                                }
+                            }
+                        } catch (e) {}
+                    }
+
+                    const svg = el.querySelector('apx-chart svg') || el.querySelector('.apexcharts-svg') || el.querySelector('svg');
+                    if (!svg) {
+                        return { status: 'OK', reason: 'Operação Normal', value: 1.0 };
+                    }
+
+                    const rawRects = Array.from(svg.querySelectorAll(
+                        '.apexcharts-heatmap-rect, g.apexcharts-heatmap rect, g.apexcharts-series rect, apx-chart svg rect, svg rect'
+                    ));
+                    
+                    const rects = rawRects.filter(r => {
+                        const w = parseFloat(r.getAttribute('width') || (r.getBoundingClientRect && r.getBoundingClientRect().width) || 0);
+                        const h = parseFloat(r.getAttribute('height') || (r.getBoundingClientRect && r.getBoundingClientRect().height) || 0);
+                        return w > 1 && w < 600 && h > 1 && h < 150;
+                    }).map(r => {
+                        const xAttr = r.getAttribute('x');
+                        const yAttr = r.getAttribute('y');
+                        const bbox = r.getBoundingClientRect ? r.getBoundingClientRect() : { left: 0, top: 0 };
+                        return {
+                            x: xAttr !== null ? parseFloat(xAttr) : bbox.left,
+                            y: yAttr !== null ? parseFloat(yAttr) : bbox.top,
+                            fill: (r.getAttribute('fill') || r.style.fill || r.style.backgroundColor || '').toLowerCase(),
+                            val: parseFloat(r.getAttribute('val') || r.getAttribute('data-val') || r.getAttribute('data:val') || 0)
+                        };
+                    });
+
+                    if (rects.length === 0) {
+                        return { status: 'OK', reason: 'Operação Normal', value: 1.0 };
+                    }
+
+                    rects.sort((a, b) => a.x - b.x);
+                    const columns = [];
+                    for (let r of rects) {
+                        let col = columns.find(c => Math.abs(c.x - r.x) <= 8);
+                        if (!col) {
+                            col = { x: r.x, cells: [] };
+                            columns.push(col);
+                        }
+                        col.cells.push(r);
+                    }
+                    columns.sort((a, b) => a.x - b.x);
+
+                    let todayCol = (columns.length >= todayDay) ? columns[todayDay - 1] : columns[columns.length - 1];
+                    const todayCells = todayCol ? todayCol.cells.sort((a, b) => a.y - b.y) : [];
+
+                    const activeToday = todayCells.filter(r => {
+                        return r.fill && !r.fill.includes('#f3f4f6') && !r.fill.includes('#e5e7eb') && !r.fill.includes('#ffffff') && !r.fill.includes('transparent') && !r.fill.includes('none');
+                    });
+
+                    const isRed = (fill, val) => {
+                        return (fill.includes('#ef4444') || fill.includes('#fee2e2') || fill.includes('#fca5a5') || fill.includes('rgb(254') || fill.includes('rgb(239') || fill.includes('rgb(220') || fill.includes('red')) || (val === 0);
+                    };
+
+                    if (activeToday.length > 0) {
+                        const last2 = activeToday.slice(-2);
+                        const bothRed = last2.length === 2 && last2.every(r => isRed(r.fill, r.val));
+                        const lastOneRed = last2.length >= 1 && isRed(last2[last2.length - 1].fill, last2[last2.length - 1].val);
+
+                        let status = 'OK';
+                        let reason = 'Operação Normal';
+                        if (bothRed) {
+                            status = 'FALHA';
+                            reason = '🚨 OFFLINE: Penúltimo e último períodos consecutivos em vermelho / sem fluxo';
+                        } else if (lastOneRed) {
+                            status = 'ALERTA';
+                            reason = '⚠️ ALERTA: Último período em vermelho (penúltimo operou normalmente)';
+                        }
+
+                        const lastVal = last2.length > 0 ? (last2[last2.length - 1].val > 0 ? last2[last2.length - 1].val : 0.0) : 1.0;
+                        return { status, reason, value: (status === 'OK' && lastVal === 0 ? 1.0 : lastVal) };
+                    }
+
+                    return { status, reason: 'Operação Normal', value: 1.0 };
+                }""", current_day)
+
+                status_str = eval_result.get("status", "OK")
+                status_enum = StatusEnum.FALHA if status_str == "FALHA" else (StatusEnum.ALERTA if status_str == "ALERTA" else StatusEnum.OK)
+                reason_str = eval_result.get("reason", "Operação Normal")
+                is_red = (status_enum in (StatusEnum.FALHA, StatusEnum.ALERTA))
+                
+                reading = LaneReading(
+                    timestamp=timestamp,
+                    equipment_id=base_radar,
+                    lane_number=formatted_lane,
+                    flow_value=float(eval_result.get("value", 1.0)),
+                    raw_value=str(eval_result.get("value", "1.0")),
+                    is_red_highlighted=is_red,
+                    status=status_enum,
+                    failure_reason=reason_str if status_enum != StatusEnum.OK else "Operação Normal"
+                )
+                report.readings.append(reading)
+                logger.info(f"   ✓ Faixa extraída: {formatted_lane} -> {status_enum.value} ({reading.failure_reason})")
+
+    def scrape_equipment_lanes(self, target_lane: str, timestamp: str) -> EquipmentReport:
+        """Aplica o filtro para uma faixa ou equipamento e extrai a leitura com precisão."""
         if not self.page:
-            return EquipmentReport(equipment_id=equipment_id, error_message="Página não inicializada")
+            return EquipmentReport(equipment_id=target_lane, error_message="Página não inicializada")
 
-        logger.info(f"🔍 Consultando equipamento: {equipment_id}")
-        report = EquipmentReport(equipment_id=equipment_id)
+        # Decompõe o target (ex: 'SBR402-1' -> base='SBR402', faixa='1', formatted='SBR402 - 1')
+        if "-" in target_lane:
+            parts = target_lane.split("-")
+            base_radar = parts[0].strip()
+            faixa_num = parts[1].strip()
+            formatted_lane = f"{base_radar} - {faixa_num}"
+        else:
+            base_radar = target_lane.strip()
+            faixa_num = None
+            formatted_lane = base_radar
+
+        logger.info(f"🔍 Consultando radar: {base_radar} (Faixa: {formatted_lane})")
+        report = EquipmentReport(equipment_id=base_radar)
+        now_brt = datetime.now(BRT)
+        current_day = now_brt.day
 
         try:
-            # 1. Executa a busca no modal de filtro
-            self.open_filter_and_search(equipment_id)
+            # 1. Garante que o modal 'Filtrar no mapa' está aberto
+            self._ensure_filter_modal_open()
 
-            # 2. Localiza cards de faixas na tela (layout mapa unificado)
-            try:
-                self.page.wait_for_selector("apx-chart svg, .main svg, svg", state="attached", timeout=25000)
-            except Exception:
-                pass
+            # 2. Preenche o mês/ano
+            self._fill_month_year()
 
-            cards = self.page.query_selector_all(".main.flex.flex-col:has(card-header-mapa), .main.flex.flex-col")
-            if cards:
-                logger.info(f"📊 Detectados {len(cards)} cards de faixas para o equipamento {equipment_id}")
-                now_brt = datetime.now(BRT)
-                current_day = now_brt.day
+            # 3. Digita o radar e seleciona a faixa desejada no autocomplete
+            self._select_lane_in_input(base_radar, faixa_num)
 
-                for idx, c in enumerate(cards, start=1):
-                    # Garante que o card foi rolado para a tela para acionar a renderização do ApexCharts
-                    try:
-                        c.scroll_into_view_if_needed()
-                        self.page.wait_for_timeout(600)
-                    except Exception:
-                        pass
+            # 4. Clica em Pesquisar e aguarda estabilização
+            self._click_search_and_wait()
 
-                    header = c.query_selector("card-header-mapa")
-                    txt = header.inner_text().strip() if header else c.inner_text().strip()
-                    
-                    # Extrai o nome da faixa (ex: GBR005 - 1 ou SPK347 - 1)
-                    match = re.search(r"Equipamento:\s*([^\n\r]+)", txt)
-                    lane_name = match.group(1).strip() if match else f"{equipment_id} - {idx}"
-                    
-                    # Avalia os 2 últimos quadrados da coluna da DATA DE HOJE (com retry para SVG)
-                    eval_result = {"status": "OK", "reason": "SVG não carregado", "value": 1.0}
-                    for attempt in range(1, 4):
-                        eval_result = c.evaluate(f"""(el, todayDay) => {{
-                            const svg = el.querySelector('apx-chart svg') || el.querySelector('svg');
-                            if (!svg) return {{ status: 'OK', reason: 'SVG não carregado', value: 0, bothRed: false }};
-                            
-                            // Extrai os retângulos da grade horária
-                            const rects = Array.from(svg.querySelectorAll('rect')).filter(r => {{
-                                const w = parseFloat(r.getAttribute('width') || 0);
-                                const h = parseFloat(r.getAttribute('height') || 0);
-                                return w > 10 && w < 100 && h > 5 && h < 50;
-                            }}).map(r => ({{
-                                x: Math.round(parseFloat(r.getAttribute('x') || 0)),
-                                y: Math.round(parseFloat(r.getAttribute('y') || 0)),
-                                fill: (r.getAttribute('fill') || '').toLowerCase(),
-                                val: parseFloat(r.getAttribute('val') || r.getAttribute('data-val') || 0)
-                            }}));
-                            
-                            if (rects.length === 0) return {{ status: 'OK', reason: 'SVG não carregado', value: 0, bothRed: false }};
+            # 5. Rolagem completa da página
+            self._scroll_full_page()
 
-                            // Agrupa células por coluna (coordenada X = dia do mês)
-                            const columnsMap = {{}};
-                            for (let r of rects) {{
-                                if (!columnsMap[r.x]) columnsMap[r.x] = [];
-                                columnsMap[r.x].push(r);
-                            }}
-                            
-                            const sortedX = Object.keys(columnsMap).map(Number).sort((a, b) => a - b);
-                            const todayX = (sortedX.length >= todayDay) ? sortedX[todayDay - 1] : null;
-                            const todayRects = todayX ? columnsMap[todayX].sort((a, b) => a.y - b.y) : [];
-                            
-                            // Filtra apenas células preenchidas (ignora horários futuros sem dados)
-                            const activeToday = todayRects.filter(r => {{
-                                return r.fill && !r.fill.includes('#f3f4f6') && !r.fill.includes('#e5e7eb') && !r.fill.includes('transparent') && !r.fill.includes('none');
-                            }});
-                            
-                            // Pega os 2 últimos quadrados registrados na data de hoje
-                            const last2 = activeToday.slice(-2);
-                            
-                            const isRed = (fill, val) => {{
-                                return (fill.includes('#ef4444') || fill.includes('#fee2e2') || fill.includes('#fca5a5') || fill.includes('rgb(254') || fill.includes('rgb(239') || fill.includes('red')) || (val === 0);
-                            }};
-                            
-                            const bothRed = last2.length === 2 && last2.every(r => isRed(r.fill, r.val));
-                            const lastOneRed = last2.length >= 1 && isRed(last2[last2.length - 1].fill, last2[last2.length - 1].val);
-                            
-                            let status = 'OK';
-                            let reason = 'Fluxo normal nos últimos períodos de hoje';
-                            if (bothRed) {{
-                                status = 'FALHA';
-                                reason = '🚨 OFFLINE: Os 2 últimos quadrados de hoje estão em vermelho / sem fluxo';
-                            }} else if (lastOneRed) {{
-                                status = 'ALERTA';
-                                reason = '⚠️ ALERTA: Último quadrado de hoje em vermelho (penúltimo operou normalmente)';
-                            }}
-                            
-                            const lastVal = last2.length > 0 ? last2[last2.length - 1].val : 1;
-                            return {{ status, reason, bothRed, value: lastVal }};
-                        }}""", current_day)
-                        
-                        if eval_result.get("reason") != "SVG não carregado":
-                            break
-                        self.page.wait_for_timeout(1200)
-                    
-                    status_str = eval_result.get("status", "OK")
-                    status_enum = StatusEnum.FALHA if status_str == "FALHA" else (StatusEnum.ALERTA if status_str == "ALERTA" else StatusEnum.OK)
-                    reason_str = eval_result.get("reason", "")
-                    
-                    reading = LaneReading(
-                        timestamp=timestamp,
-                        equipment_id=equipment_id,
-                        lane_number=lane_name,
-                        flow_value=float(eval_result.get("value", 1.0)),
-                        raw_value=str(eval_result.get("value", "1")),
-                        is_red_highlighted=(status_enum == StatusEnum.FALHA),
-                        status=status_enum,
-                        failure_reason=reason_str
-                    )
-                    report.readings.append(reading)
+            # 6. Extrai o card da faixa
+            self._extract_cards(report, timestamp, base_radar, formatted_lane, faixa_num, current_day)
 
+            if report.readings:
                 report.has_failures = any(r.status == StatusEnum.FALHA for r in report.readings)
                 return report
 
@@ -423,7 +653,7 @@ class PortalScraper:
                 rows = self.page.query_selector_all("table tr, tbody tr, .mat-row, tr")
 
             if not rows:
-                logger.warning(f"Nenhuma linha encontrada na grade para o equipamento {equipment_id}")
+                logger.warning(f"Nenhuma linha encontrada na grade para o radar {base_radar} (Faixa: {formatted_lane})")
                 report.error_message = "Tabela vazia ou não carregada"
                 return report
 
@@ -455,12 +685,12 @@ class PortalScraper:
                             )
                             col_cells.append({"value": raw_val, "is_red": is_red})
 
-                # Se detectou faixas nos cabeçalhos (ex: SPK352 - 1)
-                lane_names = detected_lanes if detected_lanes else [f"{equipment_id} (Geral)"]
+                # Fallback: atribui a leitura consolidada ao equipamento geral
+                lane_names = [formatted_lane]
                 for l_name in lane_names:
                     reading = FlowAnalyzer.evaluate_consecutive_readings(
                         timestamp=timestamp,
-                        equipment_id=equipment_id,
+                        equipment_id=base_radar,
                         lane_number=l_name,
                         readings_history=col_cells[-5:] if len(col_cells) >= 2 else col_cells
                     )
@@ -472,7 +702,7 @@ class PortalScraper:
                     if not cells:
                         continue
 
-                    lane_name = cells[0].inner_text().strip() if len(cells) > 0 else f"Faixa {idx}"
+                    lane_name = cells[0].inner_text().strip() if len(cells) > 0 else f"{formatted_lane} ({idx})"
                     row_class = row.get_attribute("class") or ""
 
                     if len(cells) > 2:
@@ -486,7 +716,7 @@ class PortalScraper:
 
                         reading = FlowAnalyzer.evaluate_consecutive_readings(
                             timestamp=timestamp,
-                            equipment_id=equipment_id,
+                            equipment_id=base_radar,
                             lane_number=lane_name,
                             readings_history=history
                         )
@@ -499,7 +729,7 @@ class PortalScraper:
 
                         reading = FlowAnalyzer.evaluate_reading(
                             timestamp=timestamp,
-                            equipment_id=equipment_id,
+                            equipment_id=base_radar,
                             lane_number=lane_name,
                             raw_value=raw_val,
                             is_red_highlighted=is_red
@@ -511,11 +741,11 @@ class PortalScraper:
             return report
 
         except PlaywrightTimeoutError:
-            logger.error(f"Timeout ao carregar dados do equipamento {equipment_id}")
+            logger.error(f"Timeout ao carregar dados do equipamento {base_radar} (Faixa: {formatted_lane})")
             report.error_message = "Timeout de carregamento"
             return report
         except Exception as e:
-            logger.error(f"Erro ao extrair equipamento {equipment_id}: {e}")
+            logger.error(f"Erro ao extrair equipamento {base_radar} (Faixa: {formatted_lane}): {e}")
             report.error_message = str(e)
             return report
 
@@ -532,6 +762,8 @@ class PortalScraper:
             self.start_browser()
             if not self.login():
                 logger.error("Interrompendo escaneamento devido a falha no login.")
+                summary.success = False
+                summary.error_message = "Falha na autenticação / Login não concluído"
                 return summary
 
             # Navega até a página de fluxos se for diferente da URL pós-login
@@ -551,17 +783,28 @@ class PortalScraper:
             equipments = self.get_equipment_list()
             if not equipments:
                 logger.warning("Nenhum equipamento retornado pelo portal ou configurado no .env.")
+                summary.success = False
+                summary.error_message = "Nenhum equipamento retornado pelo portal ou configurado no .env"
                 return summary
 
             for equip in equipments:
                 rep = self.scrape_equipment_lanes(equip, timestamp)
                 summary.reports.append(rep)
+                if self.page:
+                    logger.info("⏳ Aguardando 2.5s para transição segura entre equipamentos...")
+                    self.page.wait_for_timeout(2500)
 
             summary.total_equipments = len(summary.reports)
             summary.total_lanes = len(summary.all_readings)
             summary.total_failures = len(summary.failed_readings)
+            summary.success = True
             return summary
 
+        except Exception as e:
+            logger.error(f"Erro inesperado durante a execução do scan: {e}")
+            summary.success = False
+            summary.error_message = str(e)
+            return summary
         finally:
             self.close_browser()
 
