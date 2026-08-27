@@ -1,0 +1,67 @@
+================================================================================
+🚗 GUIA DE INSTALAÇÃO E USO: CONTROLE DE FLUXO VIÁRIO
+================================================================================
+
+Este pacote contém o sistema automatizado de monitoramento e auditoria periódica
+de fluxos em radares de trânsito viário, com integração automática ao Google Sheets.
+
+--------------------------------------------------------------------------------
+1. PRÉ-REQUISITO ÚNICO
+--------------------------------------------------------------------------------
+* Ter o Python 3.10 ou superior instalado no computador.
+  - Download oficial gratuito: https://www.python.org/downloads/
+  - IMPORTANTE: Na tela de instalação do Python, marque a caixinha:
+    ☑️ "Add Python to PATH" (Adicionar Python às variáveis de ambiente).
+
+--------------------------------------------------------------------------------
+2. CONFIGURAÇÃO INICIAL (FEITA APENAS 1 VEZ)
+--------------------------------------------------------------------------------
+Passo 1: Extraia esta pasta (.ZIP) em um local fixo no seu computador
+         (Exemplo: C:\Controle-Fluxo ou na sua Área de Trabalho).
+
+Passo 2: Crie o arquivo de configurações '.env':
+         - Faça uma cópia do arquivo '.env.example' e renomeie para '.env'.
+         - Abra o '.env' com o Bloco de Notas e preencha:
+           • SITE_USERNAME: Seu usuário de acesso ao portal viário.
+           • SITE_PASSWORD: Sua senha de acesso ao portal viário.
+           • GOOGLE_SHEET_ID: O ID da planilha compartilhada do Google Sheets.
+
+Passo 3: Chave do Google Sheets (se aplicável):
+         - Coloque o arquivo 'service_account.json' na raiz desta pasta
+           (para autenticar com a planilha do Google Sheets).
+
+--------------------------------------------------------------------------------
+3. COMO USAR NO DIA A DIA (1 CLIQUE)
+--------------------------------------------------------------------------------
+* Para executar a verificação de rotina:
+  👉 Dê um duplo clique no arquivo: "Executar_Monitoramento.bat"
+
+  O sistema irá:
+  1. Criar o ambiente virtual e instalar o navegador automaticamente na 1ª vez.
+  2. Acessar o portal de trânsito.
+  3. Auditar todas as 60 faixas de radares cadastradas.
+  4. Preencher as abas 'Historico_Geral' e 'Pendencias_Tecnicas' no Google Sheets.
+  5. Exibir um resumo colorido na tela com as falhas encontradas.
+
+--------------------------------------------------------------------------------
+4. COMO RESOLVER CAPTCHA / RENOVAR SESSÃO (SE NECESSÁRIO)
+--------------------------------------------------------------------------------
+* Se o portal exigir resolução de Captcha para entrar:
+  👉 Dê um duplo clique no arquivo: "Resolver_Captcha_Login.bat"
+
+  1. O navegador Google Chrome vai abrir na sua tela.
+  2. O login e senha serão preenchidos automaticamente.
+  3. Resolva o Captcha na tela com o mouse e clique em "Entrar".
+  4. O script salvará os cookies no arquivo 'session_state.json'.
+  5. Pronto! As próximas execuções diárias entrarão direto sem pedir Captcha.
+
+--------------------------------------------------------------------------------
+5. ARQUIVOS PRINCIPAIS DESTE PACOTE
+--------------------------------------------------------------------------------
+* Executar_Monitoramento.bat  -> Executável de 1 clique para rodar o robô.
+* Resolver_Captcha_Login.bat  -> Executável para abrir a tela e resolver Captcha.
+* main.py                     -> Código principal do monitoramento.
+* login_assistido.py          -> Código de captura da sessão com Captcha.
+* requirements.txt            -> Lista de bibliotecas necessárias.
+* src/                        -> Módulos internos (scraper, sheets, analyzer).
+================================================================================

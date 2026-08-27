@@ -38,4 +38,6 @@ htmlcov/
 # Debug and Temporary Artifacts
 debug_*.png
 *.png
+*.zip
 scratch/
+
