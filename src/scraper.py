@@ -7,9 +7,15 @@ from src.config import settings
 from src.models import EquipmentReport, LaneReading, ScanSummary, StatusEnum
 from src.analyzer import FlowAnalyzer
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+except ImportError:
+    sync_playwright = None
+    class PlaywrightTimeoutError(Exception):
+        pass
 
 logger = logging.getLogger(__name__)
+
 
 # Fuso horário oficial de Brasília (UTC-3)
 BRT = timezone(timedelta(hours=-3))
