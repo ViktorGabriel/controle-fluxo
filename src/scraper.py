@@ -421,23 +421,18 @@ class PortalScraper:
             logger.warning(f"Erro ao clicar na busca: {e}")
 
     def _scroll_full_page(self):
-        """Executa rolagem progressiva vertical para garantir renderização de todos os cards."""
-        for scroll_y in range(0, 3200, 400):
-            self.page.evaluate(f"""() => {{
-                window.scrollTo(0, {scroll_y});
-                document.querySelectorAll('.overflow-y-auto, [cdkScrollable], mat-sidenav-content, .main-content').forEach(el => {{
-                    el.scrollTop = {scroll_y};
-                }});
-            }}""")
-            self.page.wait_for_timeout(150)
-
-        self.page.evaluate("""() => {
-            window.scrollTo(0, 0);
-            document.querySelectorAll('.overflow-y-auto, [cdkScrollable], mat-sidenav-content, .main-content').forEach(el => {
-                el.scrollTop = 0;
-            });
-        }""")
-        self.page.wait_for_timeout(300)
+        """Dispara eventos de scroll e redimensionamento em lote para renderização rápida dos cards."""
+        try:
+            self.page.evaluate("""() => {
+                document.querySelectorAll('.overflow-y-auto, [cdkScrollable], mat-sidenav-content, .main-content').forEach(el => {
+                    el.scrollTop = 50;
+                    el.dispatchEvent(new Event('scroll'));
+                });
+                window.dispatchEvent(new Event('resize'));
+            }""")
+            self.page.wait_for_timeout(100)
+        except Exception:
+            pass
 
     def _extract_cards(self, report, timestamp, base_radar, formatted_lane, faixa_num, current_day):
         """Extrai o card da faixa correspondente renderizada na tela."""
@@ -459,25 +454,24 @@ class PortalScraper:
 
             if target_card:
                 try:
-                    target_card.scroll_into_view_if_needed()
-                    self.page.wait_for_timeout(300)
+                    target_card.scroll_into_view_if_needed(timeout=1000)
                 except Exception:
                     pass
 
-                for _ in range(8):
+                for _ in range(6):
                     has_rendered = target_card.evaluate("""el => {
-                        const svg = el.querySelector('apx-chart svg, .apexcharts-svg, svg');
-                        if (svg && svg.querySelectorAll('rect').length > 0) return true;
                         if (window.ng && window.ng.getComponent) {
                             const chartEl = el.querySelector('chart-mapa-unificado-minute') || el;
                             const comp = window.ng.getComponent(chartEl);
-                            if (comp && comp.chartOptions && comp.chartOptions.series) return true;
+                            if (comp && comp.chartOptions && comp.chartOptions.series && comp.chartOptions.series.length > 0) return true;
                         }
+                        const svg = el.querySelector('apx-chart svg, .apexcharts-svg, svg');
+                        if (svg && svg.querySelectorAll('rect').length > 0) return true;
                         return false;
                     }""")
                     if has_rendered:
                         break
-                    self.page.wait_for_timeout(500)
+                    self.page.wait_for_timeout(150)
 
                 eval_result = target_card.evaluate("""(el, todayDay) => {
                     const chartEl = el.querySelector('chart-mapa-unificado-minute') || el;
